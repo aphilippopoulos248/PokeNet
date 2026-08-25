@@ -1,0 +1,17 @@
+data/raw/**
+!data/raw/.gitkeep
+data/splits/*.csv
+outputs/**
+!outputs/.gitkeep
+reports/*.png
+reports/*.md
+!reports/.gitkeep
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+runs/
+*.pt
+*.pth
+.ipynb_checkpoints/
+kaggle.json

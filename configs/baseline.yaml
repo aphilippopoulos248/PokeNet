@@ -1,0 +1,30 @@
+# Track A - hand-built CNN, no pretrained weights.
+# Purpose: understand the mechanics and establish a floor to beat.
+# Expect roughly 40-60% top-1. If it beats that, your dataset is easier than average.
+run_name: baseline_pokenet
+model: poke_net
+pretrained: false
+width: 32
+dropout: 0.3
+
+img_size: 224
+batch_size: 64
+epochs: 60
+freeze_epochs: 0
+
+optimizer: adamw
+lr_head: 0.001
+lr_backbone: 0.001     # same LR - nothing is pretrained here
+weight_decay: 0.0001
+warmup_ratio: 0.05
+
+label_smoothing: 0.1
+mixup_alpha: 0.0
+aug: medium
+balanced_sampler: false
+
+num_workers: 4
+patience: 15
+clip_grad: 1.0
+amp: true
+seed: 42

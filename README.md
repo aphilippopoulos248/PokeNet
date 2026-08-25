@@ -1,0 +1,144 @@
+# PokemonCNN
+
+Classify the original 151 Pokemon from an image, with PyTorch.
+
+Two tracks run through the same pipeline: a **hand-built CNN** (`poke_net`) to
+learn the mechanics and set a floor, and a **fine-tuned ImageNet backbone**
+(ResNet/EfficientNet) to actually reach useful accuracy.
+
+---
+
+## The pipeline
+
+| # | Stage | Command | Output |
+|---|---|---|---|
+| 1 | Download | `python -m src.download` | `data/raw/` |
+| 2 | Inspect | `python -m src.inspect_data` | `reports/dataset_report.md`, class-distribution chart |
+| 3 | Split | `python -m src.prepare` | `data/splits/{train,val,test}.csv`, `classes.json` |
+| 4 | Train baseline | `python -m src.train --config configs/baseline.yaml` | `outputs/baseline_pokenet/` |
+| 5 | Train transfer | `python -m src.train --config configs/resnet18.yaml` | `outputs/resnet18_ft/` |
+| 6 | Evaluate | `python -m src.evaluate --checkpoint outputs/resnet18_ft/best.pt` | confusion matrix, per-class report, mistake grid |
+| 7 | Predict | `python -m src.predict --checkpoint outputs/resnet18_ft/best.pt --image pic.jpg` | top-5 labels |
+
+Run every command from the project root, so that `src` is importable as a package.
+
+---
+
+## Setup
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate            # Windows
+# source .venv/bin/activate       # macOS / Linux
+
+# PyTorch first, matched to your CUDA version (check with nvidia-smi):
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+
+pip install -r requirements.txt
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+```
+
+That last line must print `True`. If it prints `False` you are about to train on
+CPU by accident, which is roughly 30x slower.
+
+### Kaggle credentials
+
+`src/download.py` uses the Kaggle API. Get a token at
+kaggle.com -> Settings -> API -> **Create New Token**, then save the downloaded
+`kaggle.json` to `C:\Users\<you>\.kaggle\kaggle.json`.
+
+---
+
+## Stage notes - the decisions that actually matter
+
+### 2. Inspect before you train
+`inspect_data.py` does not assume a folder layout; it treats any directory that
+directly contains images as a class and merges same-named folders. It reports:
+
+- **class count** - if it is not 151, the layout is nested differently than assumed
+- **class balance** - a 10x imbalance changes whether you need a weighted sampler
+- **alpha channels** - sprite datasets are full of transparent PNGs. Calling
+  `.convert("RGB")` on those paints transparent pixels **black**, handing the
+  model a hard black silhouette to memorise instead of the Pokemon.
+  `utils.load_image_rgb` composites onto white instead.
+- **exact duplicates** - dropped in stage 3, because a duplicate straddling train
+  and test leaks the answer and quietly inflates your reported accuracy
+
+### 3. Split once, freeze it
+The split is written to CSV and reused by every run, so model A and model B are
+comparable. It is stratified per class, and never lets val/test consume a class
+entirely. 70 / 15 / 15 by default.
+
+### 4-5. Augmentation
+`RandomResizedCrop`, horizontal flip, mild rotation, mild colour jitter, random
+erasing. Deliberately **no vertical flip and no strong hue jitter** - Pokemon are
+always upright, and identity is partly colour (a hue-shifted Charmander is a
+different creature). Mixup is on for the transfer configs.
+
+### 5. Two-phase fine-tuning
+Phase 1 freezes the backbone and trains only the new 151-way head for a few
+epochs. A randomly initialised head produces huge early gradients; letting those
+flow into pretrained weights destroys the features you came for. Phase 2
+unfreezes everything at a **10x lower backbone LR** (`lr_backbone`) than the head.
+
+### 6. Read the confusion matrix, not just the accuracy
+The interesting output is the most-confused pairs. Expect the model to struggle
+with Nidoran-M vs Nidoran-F, the three Eeveelutions, and adjacent evolution
+stages. `reports/*_mistakes.png` shows the confidently-wrong predictions, which
+is where label noise in the dataset usually surfaces.
+
+---
+
+## Expected results (151 classes, ~1/151 = 0.7% chance baseline)
+
+| Model | Top-1 | Top-5 | Notes |
+|---|---|---|---|
+| `poke_net` from scratch | 40-60% | 70-85% | The floor. Educational, not useful. |
+| `resnet18` fine-tuned | 88-95% | 98%+ | Best accuracy-per-minute. Start here. |
+| `resnet50` fine-tuned | 90-96% | 99% | A couple of points for ~3x the compute. |
+
+If the baseline scores far above this range, check for train/test leakage first.
+
+---
+
+## Tuning knobs
+
+Any config key can be overridden on the command line:
+
+```bash
+python -m src.train --config configs/resnet18.yaml --epochs 40 --batch-size 96 --aug heavy
+```
+
+| Symptom | Try |
+|---|---|
+| CUDA out of memory | halve `batch_size`, or `--img-size 160` |
+| Train acc >> val acc | `--aug heavy`, raise `mixup_alpha`, raise `weight_decay` |
+| Both accuracies low / flat | raise `lr_head`, lower `freeze_epochs`, train longer |
+| Rare classes always wrong | `balanced_sampler: true` |
+| Loss goes NaN | lower LR, keep `clip_grad: 1.0`, check `amp` |
+| DataLoader stalls on Windows | `--num-workers 0` |
+
+---
+
+## Layout
+
+```
+PokemonCNN/
+├── configs/          baseline.yaml, resnet18.yaml, resnet50.yaml
+├── data/
+│   ├── raw/          downloaded images (gitignored)
+│   └── splits/       frozen train/val/test manifests + classes.json
+├── outputs/<run>/    best.pt, last.pt, history.csv, curves.png, config.json
+├── reports/          dataset report, confusion matrices, mistake grids
+└── src/
+    ├── utils.py        paths, seeding, device, alpha-safe image loading
+    ├── download.py     Kaggle API fetch
+    ├── inspect_data.py dataset QC report
+    ├── prepare.py      dedupe + stratified split -> CSV manifests
+    ├── dataset.py      Dataset, transforms, DataLoaders
+    ├── models.py       PokeNet + pretrained backbones, freeze/unfreeze
+    ├── engine.py       train/eval loops, AMP, mixup, cosine LR, checkpoints
+    ├── train.py        config-driven training CLI
+    ├── evaluate.py     test metrics, confusion matrix, mistake analysis
+    └── predict.py      inference on new images
+```

@@ -1,0 +1,28 @@
+# Track C - push for the last few points. Heavier, slower, needs more VRAM.
+# Drop batch_size to 32 if you OOM.
+run_name: resnet50_ft
+model: resnet50
+pretrained: true
+dropout: 0.3
+
+img_size: 256
+batch_size: 32
+epochs: 35
+freeze_epochs: 3
+
+optimizer: adamw
+lr_head: 0.0007
+lr_backbone: 0.00005
+weight_decay: 0.0001
+warmup_ratio: 0.05
+
+label_smoothing: 0.1
+mixup_alpha: 0.2
+aug: heavy
+balanced_sampler: true
+
+num_workers: 6
+patience: 8
+clip_grad: 1.0
+amp: true
+seed: 42

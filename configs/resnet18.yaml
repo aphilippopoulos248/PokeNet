@@ -1,0 +1,29 @@
+# Track B - the workhorse. Fine-tuned ImageNet ResNet-18.
+# Two phases: 3 epochs head-only on frozen features, then full fine-tune.
+# Expect 88-95% top-1 and 98%+ top-5.
+run_name: resnet18_ft
+model: resnet18
+pretrained: true
+dropout: 0.2
+
+img_size: 224
+batch_size: 64
+epochs: 30
+freeze_epochs: 3
+
+optimizer: adamw
+lr_head: 0.001
+lr_backbone: 0.0001    # 10x lower - do not wreck the pretrained features
+weight_decay: 0.0001
+warmup_ratio: 0.05
+
+label_smoothing: 0.1
+mixup_alpha: 0.2
+aug: medium
+balanced_sampler: false
+
+num_workers: 4
+patience: 8
+clip_grad: 1.0
+amp: true
+seed: 42
