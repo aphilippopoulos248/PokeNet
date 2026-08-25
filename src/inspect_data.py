@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 from tqdm import tqdm
 
+from src.names import resolve
 from src.utils import DATA_RAW, IMAGE_EXTS, REPORTS
 
 
@@ -62,6 +63,10 @@ def main() -> int:
 
     counts = {c: len(f) for c, f in classes.items()}
     total = sum(counts.values())
+
+    # Fold folder-name spellings onto the official 151 before counting classes.
+    mapping, unmatched = resolve(list(classes))
+    canonical = sorted({mapping[f] for f in classes if f in mapping})
 
     sizes: Counter = Counter()
     modes: Counter = Counter()
@@ -115,7 +120,11 @@ def main() -> int:
         "# Dataset report",
         "",
         f"- Root: `{args.root}`",
-        f"- Classes: **{len(counts)}**" + ("" if len(counts) == 151 else "  <- expected 151, check the layout"),
+        f"- Class folders: **{len(counts)}**",
+        f"- Canonical Pokemon after name folding: **{len(canonical)}** / 151"
+        + ("" if len(canonical) == 151 else "  <- some of the 151 have no images here"),
+        (f"- Folders not matching the official 151: {len(unmatched)} "
+         + (", ".join(f"`{u}`" for u in unmatched[:10]) if unmatched else "none")),
         f"- Images: **{total}**",
         f"- Mean / min / max per class: {total / len(counts):.1f} / {min(counts.values())} / {max(counts.values())}",
         f"- Imbalance ratio (max/min): {max(counts.values()) / max(min(counts.values()), 1):.1f}x",
@@ -154,7 +163,7 @@ def main() -> int:
     out = REPORTS / "dataset_report.md"
     out.write_text("\n".join(lines), encoding="utf-8")
 
-    print("\n".join(lines[:14]))
+    print("\n".join(lines[:16]))
     print(f"\n[inspect] wrote {out}")
     print(f"[inspect] wrote {REPORTS / 'class_distribution.png'}")
     return 0
