@@ -55,7 +55,17 @@
     min-height: 100vh;
   }
 
-  .wrap { max-width: 60rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1rem,4vw,2rem) 4rem; }
+  /* The particle field sits above the body's gradient but below every bit of
+     content, and never eats a click. Fixed, so it does not scroll away. */
+  #fx {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 0;
+    opacity: 0; transition: opacity .45s ease;
+  }
+  .wrap {
+    position: relative; z-index: 1;
+    max-width: 60rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1rem,4vw,2rem) 4rem;
+  }
 
   header { margin-bottom: 1.75rem; }
   h1 {
@@ -69,8 +79,19 @@
   @media (min-width: 52rem) { .cols { grid-template-columns: 1fr 1fr; } }
 
   .panel {
-    background: var(--surface); border: 1px solid var(--line);
+    /* Frosted rather than opaque: the particle field shows through, which is
+       what stops the effect from only living in the page margins. The blur
+       keeps text contrast well clear of the moving pixels behind it. */
+    background: color-mix(in srgb, var(--surface) 86%, transparent);
+    -webkit-backdrop-filter: blur(14px) saturate(1.4);
+    backdrop-filter: blur(14px) saturate(1.4);
+    border: 1px solid var(--line);
     border-radius: 10px; padding: 1.25rem; box-shadow: var(--shadow);
+  }
+  /* Browsers without color-mix get the flat opaque panel - no transparency,
+     but nothing looks broken. */
+  @supports not (background: color-mix(in srgb, red 50%, transparent)) {
+    .panel { background: var(--surface); }
   }
 
   /* ---- drop zone ---- */
@@ -160,6 +181,8 @@
     .spinner { animation-duration: 2s; }
     .bar-fill { transition: none; }
     body { transition: none; }
+    /* Moving particles are exactly what this preference is asking us not to do. */
+    #fx { display: none; }
   }
 
   footer {
@@ -265,7 +288,348 @@
     const alpha = isDark() ? 0.32 : 0.45;
     document.body.style.setProperty('--type-a', a ? rgba(a, alpha) : 'transparent');
     document.body.style.setProperty('--type-b', b ? rgba(b, alpha * 0.8) : 'transparent');
+    fx.set(types);
   }
+
+
+  // ---- particle field ---------------------------------------------------
+  // Hand-rolled rather than a particle library, for three reasons: the page is
+  // deliberately one dependency-free file, the per-type motion models are
+  // genuinely different (embers accelerate upward, bubbles wobble on a sine,
+  // arcs are pre-generated polylines that flash) so a generic emitter would be
+  // fought more than configured, and a library big enough to do all of it is
+  // larger than the entire rest of this page.
+  //
+  // Each behaviour supplies spawn/step/draw. The engine owns the canvas, the
+  // frame loop, the particle pool and the crossfade; behaviours own nothing but
+  // their own physics. Adding a new one is ~10 lines and touches nothing else.
+  const FX_FOR_TYPE = {
+    Fire:'embers', Water:'bubbles', Electric:'arcs',
+    Grass:'leaves', Bug:'leaves',
+    Ice:'snow', Fairy:'sparkles', Psychic:'orbs',
+    Ghost:'wisps', Poison:'wisps', Dark:'wisps',
+    Rock:'motes', Ground:'motes', Steel:'motes', Normal:'motes',
+    Flying:'streaks', Dragon:'streaks', Fighting:'streaks'
+  };
+
+  const fx = (function () {
+    const canvas = document.createElement('canvas');
+    canvas.id = 'fx';
+    canvas.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(canvas);
+    const ctx = canvas.getContext('2d');
+
+    let W = 0, H = 0, parts = [], kind = null, colors = ['#888'], raf = null, swap = null;
+    const TAU = Math.PI * 2;
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    // Fade in over the first sixth of a particle's life and out over the last
+    // sixth, full strength in between. A plain 1-life/max ramp means a field
+    // that has been warmed up is mostly half-dead and barely visible.
+    const ease = p => { const t = p.life / p.max; return Math.max(0, Math.min(1, t * 6, (1 - t) * 6)); };
+
+    function resize() {
+      // Draw at device resolution but lay out in CSS pixels, or everything is
+      // blurry on a retina/scaled display.
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      W = window.innerWidth; H = window.innerHeight;
+      canvas.width = Math.round(W * dpr);
+      canvas.height = Math.round(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    const B = {
+      // Fire - embers rising, accelerating, flickering out.
+      embers: {
+        count: 54, blend: 'lighter',
+        spawn(p) {
+          p.x = rnd(0, W); p.y = H + rnd(0, H * 0.25);
+          p.r = rnd(1.6, 4.4); p.vy = -rnd(0.3, 1.0); p.vx = rnd(-0.2, 0.2);
+          p.max = rnd(220, 470); p.life = 0; p.ph = rnd(0, TAU);
+        },
+        step(p) {
+          p.life++;
+          p.vy -= 0.0016;                                  // heat rises faster over time
+          p.x += p.vx + Math.sin(p.life * 0.02 + p.ph) * 0.4;
+          p.y += p.vy;
+          return p.life < p.max && p.y > -30;
+        },
+        draw(p) {
+          const k = ease(p);
+          const flick = 0.6 + 0.4 * Math.sin(p.life * 0.3 + p.ph);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r * (0.55 + k * 0.45), 0, TAU);
+          ctx.fillStyle = rgba(p.c, (isDark() ? 0.62 : 0.85) * k * flick);
+          ctx.fill();
+        }
+      },
+
+      // Water - bubbles rising on a sine, thinning as they go.
+      bubbles: {
+        count: 34, blend: 'source-over',
+        spawn(p) {
+          p.x0 = rnd(0, W); p.x = p.x0; p.y = H + rnd(10, H * 0.3);
+          p.r = rnd(3, 12); p.vy = -rnd(0.25, 0.7);
+          p.max = rnd(320, 620); p.life = 0; p.ph = rnd(0, TAU); p.amp = rnd(6, 20);
+        },
+        step(p) {
+          p.life++;
+          p.y += p.vy;
+          p.x = p.x0 + Math.sin(p.life * 0.025 + p.ph) * p.amp;
+          return p.life < p.max && p.y > -30;
+        },
+        draw(p) {
+          const k = ease(p);
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU);
+          ctx.strokeStyle = rgba(p.c, 0.75 * k); ctx.lineWidth = 1.6; ctx.stroke();
+          ctx.fillStyle = rgba(p.c, 0.12 * k); ctx.fill();
+          ctx.beginPath();                                  // little specular highlight
+          ctx.arc(p.x - p.r * 0.33, p.y - p.r * 0.33, p.r * 0.22, 0, TAU);
+          ctx.fillStyle = rgba('#ffffff', 0.4 * k); ctx.fill();
+        }
+      },
+
+      // Electric - jagged polylines that flash for a few frames, on a stagger so
+      // they never all fire at once. Negative life is the pre-strike delay.
+      arcs: {
+        count: 22, blend: 'lighter',
+        spawn(p) {
+          const n = 4 + ((Math.random() * 4) | 0);
+          let cx = rnd(0, W), cy = rnd(-40, H * 0.65);
+          p.pts = [];
+          for (let i = 0; i < n; i++) {
+            p.pts.push([cx, cy]);
+            cx += rnd(-55, 55); cy += rnd(22, 62);
+          }
+          p.life = -((Math.random() * 75) | 0);             // stagger the strikes
+          p.max = rnd(9, 22); p.w = rnd(0.9, 2.4);
+        },
+        step(p) { p.life++; return p.life < p.max; },
+        draw(p) {
+          if (p.life < 0) return;                           // still waiting to strike
+          const k = 1 - p.life / p.max;
+          const flick = Math.random() > 0.25 ? 1 : 0.35;    // unstable, like a real arc
+          ctx.beginPath();
+          ctx.moveTo(p.pts[0][0], p.pts[0][1]);
+          for (let i = 1; i < p.pts.length; i++) ctx.lineTo(p.pts[i][0], p.pts[i][1]);
+          ctx.strokeStyle = rgba(p.c, 0.85 * k * flick);
+          ctx.lineWidth = p.w; ctx.lineCap = 'round'; ctx.stroke();
+        }
+      },
+
+      // Grass / Bug - leaves tumbling down, swaying, spinning.
+      leaves: {
+        count: 30, blend: 'source-over',
+        spawn(p) {
+          p.x0 = rnd(0, W); p.x = p.x0; p.y = rnd(-H * 0.3, -10);
+          p.r = rnd(4, 9); p.vy = rnd(0.25, 0.7);
+          p.rot = rnd(0, TAU); p.vr = rnd(-0.03, 0.03);
+          p.max = rnd(420, 760); p.life = 0; p.ph = rnd(0, TAU); p.amp = rnd(12, 40);
+        },
+        step(p) {
+          p.life++; p.y += p.vy; p.rot += p.vr;
+          p.x = p.x0 + Math.sin(p.life * 0.018 + p.ph) * p.amp;
+          return p.life < p.max && p.y < H + 30;
+        },
+        draw(p) {
+          const k = ease(p);
+          ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+          ctx.beginPath(); ctx.ellipse(0, 0, p.r, p.r * 0.42, 0, 0, TAU);
+          ctx.fillStyle = rgba(p.c, 0.7 * k); ctx.fill();
+          ctx.restore();
+        }
+      },
+
+      // Ice - snow, straight down with a slow drift.
+      snow: {
+        count: 60, blend: 'source-over',
+        spawn(p) {
+          p.x0 = rnd(0, W); p.x = p.x0; p.y = rnd(-H * 0.4, -5);
+          p.r = rnd(1, 3.2); p.vy = rnd(0.25, 0.85);
+          p.max = rnd(500, 900); p.life = 0; p.ph = rnd(0, TAU); p.amp = rnd(5, 22);
+        },
+        step(p) {
+          p.life++; p.y += p.vy;
+          p.x = p.x0 + Math.sin(p.life * 0.012 + p.ph) * p.amp;
+          return p.life < p.max && p.y < H + 20;
+        },
+        draw(p) {
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU);
+          ctx.fillStyle = rgba(p.c, 0.8 * ease(p)); ctx.fill();
+        }
+      },
+
+      // Fairy - four-point twinkles that bloom and vanish in place.
+      sparkles: {
+        count: 40, blend: 'lighter',
+        spawn(p) {
+          p.x = rnd(0, W); p.y = rnd(0, H); p.r = rnd(3, 11);
+          p.life = -((Math.random() * 120) | 0); p.max = rnd(40, 90);
+        },
+        step(p) { p.life++; return p.life < p.max; },
+        draw(p) {
+          if (p.life < 0) return;
+          const t2 = p.life / p.max;
+          const k = Math.sin(t2 * Math.PI);                 // in and back out
+          const r = p.r * k;
+          ctx.beginPath();
+          ctx.moveTo(p.x - r, p.y); ctx.lineTo(p.x + r, p.y);
+          ctx.moveTo(p.x, p.y - r); ctx.lineTo(p.x, p.y + r);
+          ctx.strokeStyle = rgba(p.c, 0.75 * k); ctx.lineWidth = 1.3;
+          ctx.lineCap = 'round'; ctx.stroke();
+        }
+      },
+
+      // Psychic - orbs on slow wide orbits, leaving a soft glow.
+      orbs: {
+        count: 22, blend: 'lighter',
+        spawn(p) {
+          p.cx = rnd(0, W); p.cy = rnd(0, H);
+          p.rad = rnd(30, 130); p.a = rnd(0, TAU); p.va = rnd(-0.012, 0.012);
+          p.r = rnd(2, 6); p.max = rnd(400, 800); p.life = 0;
+        },
+        step(p) {
+          p.life++; p.a += p.va;
+          p.x = p.cx + Math.cos(p.a) * p.rad;
+          p.y = p.cy + Math.sin(p.a) * p.rad * 0.55;
+          return p.life < p.max;
+        },
+        draw(p) {
+          const k = Math.sin((p.life / p.max) * Math.PI);
+          const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 4);
+          g.addColorStop(0, rgba(p.c, 0.55 * k));
+          g.addColorStop(1, rgba(p.c, 0));
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 4, 0, TAU); ctx.fill();
+        }
+      },
+
+      // Ghost / Poison / Dark - big soft blobs creeping upward.
+      wisps: {
+        count: 18, blend: 'source-over',
+        spawn(p) {
+          p.x0 = rnd(0, W); p.x = p.x0; p.y = H + rnd(0, H * 0.3);
+          p.r = rnd(18, 58); p.vy = -rnd(0.1, 0.35);
+          p.max = rnd(500, 900); p.life = 0; p.ph = rnd(0, TAU); p.amp = rnd(10, 34);
+        },
+        step(p) {
+          p.life++; p.y += p.vy;
+          p.x = p.x0 + Math.sin(p.life * 0.01 + p.ph) * p.amp;
+          return p.life < p.max && p.y > -80;
+        },
+        draw(p) {
+          const k = Math.sin((p.life / p.max) * Math.PI);
+          const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
+          g.addColorStop(0, rgba(p.c, 0.28 * k));
+          g.addColorStop(1, rgba(p.c, 0));
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU); ctx.fill();
+        }
+      },
+
+      // Rock / Ground / Steel / Normal - dust hanging in the air.
+      motes: {
+        count: 46, blend: 'source-over',
+        spawn(p) {
+          p.x = rnd(0, W); p.y = rnd(0, H);
+          p.r = rnd(0.8, 2.6); p.vx = rnd(-0.18, 0.18); p.vy = rnd(-0.14, 0.06);
+          p.max = rnd(400, 800); p.life = 0;
+        },
+        step(p) { p.life++; p.x += p.vx; p.y += p.vy; return p.life < p.max; },
+        draw(p) {
+          const k = Math.sin((p.life / p.max) * Math.PI);
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU);
+          ctx.fillStyle = rgba(p.c, 0.5 * k); ctx.fill();
+        }
+      },
+
+      // Flying / Dragon / Fighting - speed lines tearing across.
+      streaks: {
+        count: 26, blend: 'source-over',
+        spawn(p) {
+          p.y = rnd(0, H); p.x = rnd(-W * 0.2, W);
+          p.len = rnd(30, 130); p.vx = rnd(1.6, 5.0);
+          p.max = rnd(120, 260); p.life = 0; p.w = rnd(0.8, 2.0);
+        },
+        step(p) { p.life++; p.x += p.vx; return p.life < p.max && p.x < W + 160; },
+        draw(p) {
+          const k = Math.sin((p.life / p.max) * Math.PI);
+          const g = ctx.createLinearGradient(p.x - p.len, p.y, p.x, p.y);
+          g.addColorStop(0, rgba(p.c, 0));
+          g.addColorStop(1, rgba(p.c, 0.5 * k));
+          ctx.strokeStyle = g; ctx.lineWidth = p.w; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(p.x - p.len, p.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+        }
+      }
+    };
+
+    // Dual types tint roughly a third of the particles with the second colour,
+    // so a Grass/Poison Bulbasaur drops mostly green leaves with purple ones
+    // mixed through instead of picking a winner.
+    function tint() { return colors[Math.random() < 0.68 ? 0 : (colors[1] ? 1 : 0)]; }
+
+    function frame() {
+      raf = null;
+      if (!kind) return;
+      const b = B[kind];
+      ctx.clearRect(0, 0, W, H);
+      // 'lighter' is additive: gorgeous as a glow on a dark page, and completely
+      // invisible on a light one, where adding light to near-white does nothing.
+      // So the glow behaviours fall back to normal compositing in light mode.
+      ctx.globalCompositeOperation = (b.blend === 'lighter' && !isDark()) ? 'source-over' : b.blend;
+      for (let i = 0; i < parts.length; i++) {
+        const p = parts[i];
+        if (!b.step(p)) { b.spawn(p); p.c = tint(); }       // recycle, never allocate
+        else b.draw(p);
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      loop();
+    }
+    function loop() {
+      // Nothing to draw, or the tab is in the background: stop burning frames.
+      if (raf || !kind || document.hidden) return;
+      raf = requestAnimationFrame(frame);
+    }
+
+    function start(k, cols) {
+      kind = k; colors = cols;
+      const b = B[k];
+      parts = new Array(b.count);
+      for (let i = 0; i < b.count; i++) {
+        const p = {}; b.spawn(p); p.c = tint();
+        // Fast-forward each particle a random distance into its own life, so the
+        // field arrives already in motion rather than as an empty screen that
+        // slowly fills from the spawn edge.
+        const warm = (Math.random() * p.max * 0.8) | 0;
+        for (let s = 0; s < warm; s++) { if (!b.step(p)) { b.spawn(p); break; } }
+        parts[i] = p;
+      }
+      canvas.style.opacity = '1';
+      loop();
+    }
+    function stop() {
+      canvas.style.opacity = '0';
+      kind = null; parts = [];
+      if (raf) { cancelAnimationFrame(raf); raf = null; }
+      ctx.clearRect(0, 0, W, H);
+    }
+
+    function set(types) {
+      const t1 = types && types[0], t2 = types && types[1];
+      const k = FX_FOR_TYPE[t1], c1 = TYPE_COLORS[t1];
+      clearTimeout(swap);
+      if (!k || !c1) { canvas.style.opacity = '0'; swap = setTimeout(stop, 450); return; }
+      const cols = [c1, TYPE_COLORS[t2] || null];
+      if (k === kind && cols[0] === colors[0] && cols[1] === colors[1]) return;
+      if (!kind) return start(k, cols);                     // nothing showing - no need to fade
+      canvas.style.opacity = '0';                           // fade out, swap, fade back in
+      swap = setTimeout(() => { ctx.clearRect(0, 0, W, H); start(k, cols); }, 450);
+    }
+
+    resize();
+    window.addEventListener('resize', resize);
+    document.addEventListener('visibilitychange', loop);
+    return { set: set };
+  })();
 
   let current = null;
   let objectUrl = null;
