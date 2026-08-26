@@ -1,4 +1,4 @@
-# Pokemon Identifier
+# PokeNet: The Pokemon Identifier
 
 <img width="761" height="567" alt="image" src="https://github.com/user-attachments/assets/6d717f8d-8899-42e0-8170-2348c15dae60" />
 
