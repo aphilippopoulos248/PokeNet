@@ -283,6 +283,59 @@ The real constraint is the opposite of speed: ~7,000 images over 150 classes is
 about 47 per class, which is thin. That is what caps accuracy, and it is why
 merging datasets is worth more than any hyperparameter you could tune.
 
+## Resuming / extending a run
+
+```bash
+python -m src.train --config configs/baseline.yaml --epochs 120 \
+    --resume outputs/baseline_pokenet/best.pt
+```
+
+`--epochs` is the new **total**, not epochs to add - 60 already done plus 60 more
+is `--epochs 120`. Get this wrong (leave it at 60) and the run does nothing: it
+sees you are already past epoch 60 and exits immediately.
+
+What resuming does and does not carry over:
+
+- **Model and optimizer weights** load from the checkpoint - training continues
+  from where it left off, not from scratch.
+- **The learning rate schedule restarts** - a fresh warmup-then-cosine-decay
+  curve is built for the new total. This is a deliberate warm restart, not a
+  bug: by epoch 60 your baseline's LR had already decayed to ~1e-5 and the loss
+  had flattened, so continuing at that same near-zero LR would barely move the
+  needle. Jumping back up and re-annealing is the standard technique (SGDR) for
+  pushing a plateaued run further, and it is the same idea as the freeze/unfreeze
+  phase change already used for transfer learning.
+- **history.csv and curves.png accumulate** - epochs 61-120 append to the
+  existing record rather than replacing it, so the plot still shows the full
+  120-epoch curve, not just the extension.
+- **best.pt** only updates if a later epoch actually beats the val top-1
+  already in the checkpoint, so extending a run can never silently regress it.
+
+If loss was still visibly dropping at epoch 60 - not your baseline's case, where
+it had flattened - plain `--epochs 120` from scratch (no `--resume`) is usually
+simpler and just as fast, since nothing was thrown away yet worth preserving.
+
+### The early-stopping trap
+
+`EarlyStopping` restarts fresh on every resume - it has no memory of the run
+before it. Its first reading becomes the number every later epoch must beat, and
+that first reading is taken **before** the warm restart's LR has ramped up
+enough to hurt. A warm restart deliberately makes val loss worse for several
+epochs before it (hopefully) gets better; the default `patience: 15` is
+routinely not enough runway to survive that round trip; the run stops having
+made zero net progress, `best.pt` unchanged, right as it was starting to recover.
+
+Pass a much larger patience on a resume so the schedule gets to actually finish:
+
+```bash
+python -m src.train --config configs/baseline.yaml --epochs 120 \
+    --resume outputs/baseline_pokenet/best.pt --patience 999
+```
+
+`best.pt` is still protected regardless - it only updates when an epoch actually
+beats what's already saved, so there is no downside to letting the full 120
+epochs run rather than guessing a patience number that might cut it off again.
+
 ## Tuning knobs
 
 Any config key can be overridden on the command line:
