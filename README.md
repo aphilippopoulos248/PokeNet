@@ -4,9 +4,22 @@
 
 Classify the original 151 Pokemon from an image, with PyTorch.
 
-Two tracks run through the same pipeline: a **hand-built CNN** (`poke_net`) to
-learn the mechanics and set a floor, and a **fine-tuned ImageNet backbone**
-(ResNet/EfficientNet) to actually reach useful accuracy.
+I built this project to practice and demonstrate CNN engineering for image
+classification, end to end - not just importing a pretrained model and calling
+it done, but designing the network myself, understanding why each augmentation
+and training decision matters, reading what the confusion matrix is actually
+telling me about the data, and shipping the result as a real, publicly usable
+web app rather than a notebook that only runs on my machine.
+
+The model I'm running is **`poke_net`**, a convolutional network I designed and
+trained from scratch - no pretrained weights - and it's the checkpoint in
+`outputs/baseline_pokenet/` that's currently trained and deployed. The pipeline
+also supports fine-tuning pretrained ImageNet backbones (ResNet/EfficientNet)
+through the same code path - `configs/resnet18.yaml` is set up and ready to go -
+but the baseline CNN is the one I actually trained to completion, tuned, and
+put in front of the web app. I'd rather show a model I built and understand
+every layer of than one where the interesting work was done by someone else's
+pretrained weights.
 
 ---
 
@@ -18,9 +31,9 @@ learn the mechanics and set a floor, and a **fine-tuned ImageNet backbone**
 | 2 | Inspect | `python -m src.inspect_data` | `reports/dataset_report.md`, class-distribution chart |
 | 3 | Split | `python -m src.prepare` | `data/splits/{train,val,test}.csv`, `classes.json` |
 | 4 | Train baseline | `python -m src.train --config configs/baseline.yaml` | `outputs/baseline_pokenet/` |
-| 5 | Train transfer | `python -m src.train --config configs/resnet18.yaml` | `outputs/resnet18_ft/` |
-| 6 | Evaluate | `python -m src.evaluate --checkpoint outputs/resnet18_ft/best.pt` | confusion matrix, per-class report, mistake grid |
-| 7 | Predict | `python -m src.predict --checkpoint outputs/resnet18_ft/best.pt --image pic.jpg` | top-5 labels |
+| 5 | Train transfer (optional) | `python -m src.train --config configs/resnet18.yaml` | `outputs/resnet18_ft/` |
+| 6 | Evaluate | `python -m src.evaluate --checkpoint outputs/baseline_pokenet/best.pt` | confusion matrix, per-class report, mistake grid |
+| 7 | Predict | `python -m src.predict --checkpoint outputs/baseline_pokenet/best.pt --image pic.jpg` | top-5 labels |
 
 ```bash
 # a file you saved
@@ -36,7 +49,7 @@ a bar chart of the top-5 confidences. Close it to continue. Pass `--no-show` to
 suppress the windows (scripts, CSV batches, headless runs); more than 12 images
 only opens the first 12.
 
-The model always returns one of its 149 classes, with a confidence. Feed it a
+The model always returns one of its 151 classes, with a confidence. Feed it a
 golden retriever and it will say Growlithe - softmax has no "none of the above".
 A low top-1 with a flat top-5 is the closest it gets to "I don't know".
 
@@ -114,7 +127,8 @@ python -m src.inspect_data --root data/raw/pokemon151
 ## Stage notes - the decisions that actually matter
 
 ### 2. Inspect before you train
-`inspect_data.py` does not assume a folder layout; it treats any directory that
+Before touching a training loop, I always run `inspect_data.py` first.
+It does not assume a folder layout; it treats any directory that
 directly contains images as a class and merges same-named folders. It reports:
 
 - **class count** - if it is not 151, the layout is nested differently than assumed
@@ -149,6 +163,8 @@ Phase 1 freezes the backbone and trains only the new 151-way head for a few
 epochs. A randomly initialised head produces huge early gradients; letting those
 flow into pretrained weights destroys the features you came for. Phase 2
 unfreezes everything at a **10x lower backbone LR** (`lr_backbone`) than the head.
+(This only applies to the pretrained-backbone configs - `poke_net` has no
+pretrained weights to protect, so it trains fully unfrozen from epoch 1.)
 
 ### 6. Read the confusion matrix, not just the accuracy
 The interesting output is the most-confused pairs. Expect the model to struggle
@@ -162,9 +178,21 @@ is where label noise in the dataset usually surfaces.
 
 | Model | Top-1 | Top-5 | Notes |
 |---|---|---|---|
-| `poke_net` from scratch | **82.2%** measured | **92.8%** | Actual result on this data, 60 epochs, ~40 min |
-| `resnet18` fine-tuned | 88-95% | 98%+ | Best accuracy-per-minute. Start here. |
-| `resnet50` fine-tuned | 90-96% | 99% | A couple of points for ~3x the compute. |
+| `poke_net` from scratch (**deployed**) | **82.2%** test-set | **92.8%** | Measured with `evaluate.py` on the held-out test set, 60 epochs, ~40 min |
+| `resnet18` fine-tuned | 88-95% expected | 98%+ | Config is set up (`configs/resnet18.yaml`), not yet trained to completion |
+| `resnet50` fine-tuned | 90-96% expected | 99% | A couple of points for ~3x the compute |
+
+I later extended the baseline's training from 60 epochs to 150 (see "Resuming /
+extending a run" below, including a real early-stopping bug I hit and fixed
+along the way). Validation top-1 climbed from 82.8% to **88.2%** over that
+extension. I haven't re-run `evaluate.py` against the held-out test set on the
+150-epoch checkpoint yet - the 82.2% / 92.8% test numbers above still reflect
+the 60-epoch run - so treat 88.2% as a validation-set number until I refresh
+the test-set figures with:
+
+```bash
+python -m src.evaluate --checkpoint outputs/baseline_pokenet/best.pt
+```
 
 The from-scratch number is far above the 40-60% you would expect on photographs.
 That is not leakage - it is the data. Much of this set is official artwork and
@@ -174,7 +202,8 @@ much easier problem than photos. Verified by the error structure, not the score
 
 ### Reading the baseline's mistakes
 
-Every top confusion is an evolution-line neighbour:
+When I looked at the confusion matrix, every top confusion turned out to be an
+evolution-line neighbour:
 
 ```
 Charmeleon -> Charmander  7x      Dugtrio    -> Diglett     2x
@@ -187,7 +216,9 @@ And the weakest classes are overwhelmingly **middle evolution stages** -
 Charmeleon, Pidgeotto, Machoke, Nidorina, Marowak. A middle stage shares features
 with the form below it and the form above it, so it has the least distinctive
 silhouette of the three. That is a real visual property of the problem, and a
-model that had memorised leaked images would not reproduce it.
+model that had memorised leaked images would not reproduce it. This is exactly
+the kind of pattern that told me the score was genuine rather than a leakage
+artifact - a leaky model's mistakes look random, not structured like this.
 
 Ditto (0.58) is a different failure: it is a featureless pink blob whose whole
 gimmick is transforming into other Pokemon, so a chunk of its images arguably
@@ -197,8 +228,9 @@ depict something else.
 
 ## The web app - for everyone else
 
-Other people should not have to touch a terminal. `src/app.py` serves a page
-where they drop in an image and press a button.
+Other people should not have to touch a terminal to try this, so I built
+`src/app.py`, a small server that serves a page where they drop in an image and
+press a button.
 
 ```bash
 pip install flask
@@ -212,7 +244,8 @@ checkpoint on your GPU and returns the top-5 as JSON. The page itself is one
 self-contained file - no build step, no framework.
 
 It picks the best checkpoint it can find (resnet50 -> resnet18 -> baseline), or
-pass `--checkpoint` to force one.
+pass `--checkpoint` to force one. As of now only the baseline is actually
+trained, so it will load `outputs/baseline_pokenet/best.pt` by default.
 
 | Flag | Effect |
 |---|---|
@@ -228,9 +261,13 @@ the picture contains a Pokemon at all.
 
 ## Hosting it publicly (Vercel)
 
+I wanted this reachable from a phone or shared with someone else without them
+installing Python, so I exported the baseline model to ONNX and put it behind a
+Flask app on Vercel's free tier:
+
 ```bash
 pip install onnx onnxruntime
-python -m src.export_onnx --checkpoint outputs/resnet18_ft/best.pt
+python -m src.export_onnx --checkpoint outputs/baseline_pokenet/best.pt
 cd deploy/vercel
 npm i -g vercel && vercel login     # one time
 vercel deploy --prod
@@ -253,14 +290,16 @@ JPEG turns the transparency black, the same trap `load_image_rgb` avoids on the
 Python side.
 
 `web/index.html` stays the single source of truth; the export copies it into
-`deploy/vercel/`. Re-run both commands after retraining to ship a new model.
+`deploy/vercel/`. Re-run both commands after retraining to ship a new model -
+I do this every time I extend training and want the live site to reflect it.
 
 `deploy/vercel/app.py` is one Flask app that serves the page at `/` and the API
 at `/api/*` - not a split `api/predict.py`-per-route convention. That convention
 has a sharp edge: any declared entrypoint flips the whole project into "one app
 owns every route" mode, so a handler written only for `/api/predict` crashes
 when it gets hit at `/`. Building the whole thing as one Flask app sidesteps
-that rather than fighting it.
+that rather than fighting it - I learned this the hard way after a 500 error on
+the root route sent me down that particular rabbit hole.
 
 ## How long does this take?
 
@@ -286,6 +325,9 @@ about 47 per class, which is thin. That is what caps accuracy, and it is why
 merging datasets is worth more than any hyperparameter you could tune.
 
 ## Resuming / extending a run
+
+This is exactly what I did to push the baseline from 60 epochs to 150 once I
+saw val loss was still improving and hadn't flattened out:
 
 ```bash
 python -m src.train --config configs/baseline.yaml --epochs 120 \
@@ -319,6 +361,10 @@ simpler and just as fast, since nothing was thrown away yet worth preserving.
 
 ### The early-stopping trap
 
+I hit this myself on my first attempt at extending the run: it stopped at epoch
+72 having made zero net progress, `best.pt` unchanged from before the resume,
+right as val accuracy was starting to recover. Here's why.
+
 `EarlyStopping` restarts fresh on every resume - it has no memory of the run
 before it. Its first reading becomes the number every later epoch must beat, and
 that first reading is taken **before** the warm restart's LR has ramped up
@@ -337,6 +383,8 @@ python -m src.train --config configs/baseline.yaml --epochs 120 \
 `best.pt` is still protected regardless - it only updates when an epoch actually
 beats what's already saved, so there is no downside to letting the full 120
 epochs run rather than guessing a patience number that might cut it off again.
+This is the fix that got my run from 82.8% to 88.2% val top-1 instead of
+stalling at epoch 72.
 
 ## Tuning knobs
 
