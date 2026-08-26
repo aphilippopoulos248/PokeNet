@@ -224,6 +224,35 @@ image copied straight off a Google results page works without saving a file. Und
 40% confidence it says so, because softmax always returns an answer whether or not
 the picture contains a Pokemon at all.
 
+## Hosting it publicly (Vercel)
+
+```bash
+pip install onnx onnxruntime
+python -m src.export_onnx --checkpoint outputs/resnet18_ft/best.pt
+cd deploy/vercel
+npm i -g vercel && vercel login     # one time
+vercel deploy --prod
+```
+
+That gives you a permanent public URL on Vercel's free Hobby plan.
+
+Two constraints shaped the design, both from Vercel's documented limits:
+
+**Python functions cap at 500 MB uncompressed.** The PyPI `torch` wheel for Linux
+bundles CUDA and blows past that on its own. So `src/export_onnx.py` converts the
+checkpoint to ONNX and the function runs ONNX Runtime (~15 MB) instead of PyTorch
+(~800 MB). Cold starts drop from several seconds to about one, and the export
+verifies that ONNX and PyTorch produce identical predictions before you ship.
+
+**Request bodies cap at 4.5 MB**, and phone photos routinely exceed it. The page
+downscales to 640px on a canvas before uploading, putting typical requests under
+150 KB. The canvas is filled white first - drawing a transparent PNG straight to
+JPEG turns the transparency black, the same trap `load_image_rgb` avoids on the
+Python side.
+
+`web/index.html` stays the single source of truth; the export copies it into
+`deploy/vercel/`. Re-run both commands after retraining to ship a new model.
+
 ## How long does this take?
 
 Short answer: minutes, not hours. These datasets are small by deep-learning
@@ -272,7 +301,8 @@ python -m src.train --config configs/resnet18.yaml --epochs 40 --batch-size 96 -
 ```
 PokemonCNN/
 ├── configs/          baseline.yaml, resnet18.yaml, resnet50.yaml
-├── web/index.html    the drop-an-image page served by src/app.py
+├── web/index.html    the drop-an-image page (source of truth)
+├── deploy/vercel/    generated Vercel deployment (ONNX + serverless function)
 ├── data/
 │   ├── raw/<source>/ downloaded images, one subfolder per dataset (gitignored)
 │   ├── metadata/     Gen1_Pokemon.csv - the canonical 151 names
@@ -291,6 +321,7 @@ PokemonCNN/
     ├── train.py        config-driven training CLI
     ├── benchmark.py     throughput + run-time estimator for your GPU
     ├── app.py          Flask server for the web UI
+    └── export_onnx.py  checkpoint -> ONNX for serverless hosting
     ├── evaluate.py     test metrics, confusion matrix, mistake analysis
     └── predict.py      inference on new images
 ```

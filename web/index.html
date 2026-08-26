@@ -292,13 +292,51 @@
     });
   }
 
+  // Serverless hosts cap request bodies (Vercel: 4.5 MB) and phone photos blow
+  // straight past it. The model centre-crops to 224px anyway, so the full-size
+  // original was always wasted bytes. Falls back to the untouched file on any error.
+  const MAX_SIDE = 640;
+  const SHRINK_ABOVE_BYTES = 1.5 * 1024 * 1024;
+
+  function shrink(file) {
+    return new Promise(resolve => {
+      if (file.size < SHRINK_ABOVE_BYTES) return resolve(file);
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        try {
+          const scale = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          // White first: a transparent PNG drawn straight to JPEG turns its
+          // transparency BLACK, which is exactly the artefact the model was
+          // trained not to see.
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          canvas.toBlob(
+            blob => resolve(blob || file),
+            'image/jpeg', 0.92
+          );
+        } catch (e) { resolve(file); }
+        finally { URL.revokeObjectURL(url); }
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+      img.src = url;
+    });
+  }
+
   async function identify() {
     if (!current) return;
     showLoading();
     identifyBtn.disabled = true;
     try {
+      const payload = await shrink(current);
       const body = new FormData();
-      body.append('image', current, current.name || 'pasted.png');
+      body.append('image', payload, current.name || 'pasted.png');
       const res = await fetch('/api/predict', { method: 'POST', body });
       const data = await res.json().catch(() => ({ error: 'The server sent something unreadable.' }));
       if (!res.ok) { showError(data.error || ('Server error ' + res.status)); return; }
