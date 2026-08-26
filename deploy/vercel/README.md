@@ -10,6 +10,21 @@ npm i -g vercel
 vercel login
 ```
 
+## Why `app.py`, not `api/predict.py`
+
+The first version of this put the handler in `api/predict.py`, which is Vercel's
+legacy per-file convention (one function per file, everything else served as
+static assets). That mode has a documented gotcha: **any** declared entrypoint
+config flips the whole project into "framework preset" mode, where a single app
+owns every route - including `/`. Our old handler only knew how to answer
+`/api/predict`; hit against `/`, it crashed on every request, model files
+included, because they were bundled for the old per-file mode too.
+
+`app.py` at the project root is a location Vercel auto-detects on its own
+(`flask` in requirements.txt is enough), so it embraces framework-preset mode on
+purpose instead of fighting it: one Flask app, `/` serves the page, `/api/info`
+and `/api/predict` serve the API. No `pyproject.toml` needed.
+
 ## Every deploy
 
 ```bash

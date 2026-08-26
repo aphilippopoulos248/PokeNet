@@ -22,7 +22,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from src.dataset import build_transforms
 from src.models import load_model_from_checkpoint
-from src.utils import ROOT, describe_device, get_device, load_image_rgb
+from src.utils import ROOT, describe_device, get_device, load_image_rgb, rel_to_root
 
 WEB_DIR = ROOT / "web"
 MAX_UPLOAD_MB = 16
@@ -56,7 +56,7 @@ def index():
 def info():
     return jsonify({
         "model": STATE["cfg"].get("model", "unknown"),
-        "checkpoint": str(STATE["checkpoint"].relative_to(ROOT)),
+        "checkpoint": rel_to_root(STATE["checkpoint"]),
         "classes": len(STATE["names"]),
         "device": describe_device(STATE["device"]),
         "img_size": STATE["img_size"],
@@ -119,7 +119,7 @@ def main() -> int:
     ap.set_defaults(tta=True)
     args = ap.parse_args()
 
-    ckpt = args.checkpoint or default_checkpoint()
+    ckpt = args.checkpoint.resolve() if args.checkpoint else default_checkpoint()
     if ckpt is None or not Path(ckpt).exists():
         print("[app] no checkpoint found in outputs/ - train a model first:\n"
               "      python -m src.train --config configs/resnet18.yaml")
@@ -133,7 +133,7 @@ def main() -> int:
                  img_size=img_size, tf=build_transforms(img_size, train=False), tta=args.tta)
 
     print(f"\n[app] {cfg.get('model')} · {len(names)} classes · {describe_device(device)}")
-    print(f"[app] checkpoint {Path(ckpt).relative_to(ROOT)}")
+    print(f"[app] checkpoint {rel_to_root(ckpt)}")
     print(f"[app] open  http://{'127.0.0.1' if args.host == '0.0.0.0' else args.host}:{args.port}")
     if args.host == "0.0.0.0":
         print("[app] reachable from your local network - anyone on your wifi can use it")

@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Who's That Pokémon?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+
+  :root {
+    --paper:#eef0f4; --surface:#ffffff; --sunken:#e3e6ec; --line:#d3d7e0;
+    --ink:#14161c; --muted:#5d6376; --faint:#868ca0;
+    --accent:#cf2f26; --steel:#2c6aa8;
+    --bar1:#2c6aa8; --bar2:#5c8dc0; --bar3:#8badd2; --bar4:#b3c9e0; --bar5:#d2dfec;
+    --shadow: 0 1px 2px rgba(20,22,28,.06), 0 8px 24px rgba(20,22,28,.06);
+    --f-display:"Archivo","Helvetica Neue",Arial,sans-serif;
+    --f-body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+    --f-mono:"IBM Plex Mono",Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:#0e1015; --surface:#171a21; --sunken:#10131a; --line:#2a2f3b;
+      --ink:#e7e9f0; --muted:#9aa0b3; --faint:#767d92;
+      --accent:#ff5f52; --steel:#6aa9e0;
+      --bar1:#6aa9e0; --bar2:#4d80ad; --bar3:#3d6183; --bar4:#324a61; --bar5:#283847;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+    }
+  }
+
+  body {
+    background: var(--paper); color: var(--ink);
+    font-family: var(--f-body); font-size: 16px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+
+  .wrap { max-width: 60rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1rem,4vw,2rem) 4rem; }
+
+  header { margin-bottom: 1.75rem; }
+  h1 {
+    font-family: var(--f-display); font-weight: 800; letter-spacing: -.025em;
+    font-size: clamp(1.9rem, 5vw, 2.6rem); margin: 0 0 .35rem;
+  }
+  h1 .em { color: var(--accent); }
+  .sub { color: var(--muted); margin: 0; max-width: 34rem; }
+
+  .cols { display: grid; gap: 1.25rem; grid-template-columns: 1fr; align-items: start; }
+  @media (min-width: 52rem) { .cols { grid-template-columns: 1fr 1fr; } }
+
+  .panel {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 10px; padding: 1.25rem; box-shadow: var(--shadow);
+  }
+
+  /* ---- drop zone ---- */
+  .drop {
+    border: 2px dashed var(--line); border-radius: 8px;
+    background: var(--sunken);
+    min-height: 17rem;
+    display: grid; place-items: center; text-align: center;
+    padding: 1.25rem; cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .drop:hover, .drop:focus-visible { border-color: var(--steel); }
+  .drop.is-over { border-color: var(--accent); background: var(--surface); }
+  .drop:focus-visible { outline: 2px solid var(--steel); outline-offset: 3px; }
+  .drop-inner { display: flex; flex-direction: column; align-items: center; gap: .5rem; }
+  .drop-icon { width: 44px; height: 44px; color: var(--faint); }
+  .drop strong { font-weight: 600; }
+  .drop small { color: var(--muted); font-size: .85rem; }
+  .drop img { max-width: 100%; max-height: 15rem; border-radius: 6px; display: block; }
+
+  .filename {
+    font-family: var(--f-mono); font-size: .8rem; color: var(--muted);
+    margin-top: .75rem; word-break: break-all; min-height: 1.2em;
+  }
+
+  .actions { display: flex; gap: .6rem; margin-top: .9rem; }
+  button {
+    font: inherit; font-weight: 600; border-radius: 7px; cursor: pointer;
+    padding: .7rem 1.2rem; border: 1px solid transparent; transition: filter .15s;
+  }
+  button:focus-visible { outline: 2px solid var(--steel); outline-offset: 2px; }
+  .btn-primary { background: var(--accent); color: #fff; flex: 1; }
+  .btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+  .btn-primary:disabled { background: var(--line); color: var(--faint); cursor: not-allowed; }
+  .btn-ghost { background: transparent; color: var(--muted); border-color: var(--line); }
+  .btn-ghost:hover { color: var(--ink); }
+
+  /* ---- result ---- */
+  .result { min-height: 17rem; display: flex; flex-direction: column; }
+  .placeholder {
+    flex: 1; display: grid; place-items: center; text-align: center;
+    color: var(--faint); font-size: .95rem;
+  }
+  .eyebrow {
+    font-family: var(--f-mono); font-size: .72rem; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--faint); margin-bottom: .3rem;
+  }
+  .answer {
+    font-family: var(--f-display); font-weight: 800; letter-spacing: -.02em;
+    font-size: clamp(2rem, 6vw, 2.9rem); line-height: 1.05; margin: 0 0 .3rem;
+    overflow-wrap: anywhere;
+  }
+  .conf { color: var(--muted); font-size: .95rem; margin: 0 0 1.1rem; }
+  .conf b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .bars { display: flex; flex-direction: column; gap: .45rem; margin-top: auto; }
+  .bar-row { display: grid; grid-template-columns: 7.5rem 1fr 3.2rem; align-items: center; gap: .6rem; }
+  .bar-name { font-size: .88rem; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-track { background: var(--sunken); border-radius: 4px; height: 15px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; width: 0; transition: width .45s cubic-bezier(.2,.7,.3,1); }
+  .bar-val { font-family: var(--f-mono); font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .bar-row:first-child .bar-name { font-weight: 600; }
+
+  .note {
+    margin-top: 1rem; padding: .7rem .85rem; border-radius: 6px;
+    background: var(--sunken); border-left: 3px solid var(--accent);
+    font-size: .85rem; color: var(--muted);
+  }
+  .error { border-left-color: var(--accent); color: var(--ink); }
+
+  .spinner {
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 3px solid var(--line); border-top-color: var(--steel);
+    animation: spin .7s linear infinite; margin: 0 auto .6rem;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner { animation-duration: 2s; }
+    .bar-fill { transition: none; }
+  }
+
+  footer {
+    margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--line);
+    font-family: var(--f-mono); font-size: .75rem; color: var(--faint);
+    display: flex; flex-wrap: wrap; gap: .35rem 1.1rem;
+  }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Who's that <span class="em">Pokémon</span>?</h1>
+    <p class="sub">Drop in a picture of any of the original 151 and the model will name it. Trained from scratch on ~15,000 images.</p>
+  </header>
+
+  <div class="cols">
+
+    <section class="panel">
+      <div class="drop" id="drop" tabindex="0" role="button"
+           aria-label="Choose an image, or drag one here">
+        <div class="drop-inner" id="dropInner">
+          <svg class="drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <path d="M7 10l5-5 5 5"/><path d="M12 5v13"/>
+          </svg>
+          <strong>Drop an image here</strong>
+          <small>or click to browse &middot; or paste with Ctrl&#8202;+&#8202;V</small>
+        </div>
+      </div>
+      <input type="file" id="file" accept="image/*" class="sr-only">
+      <p class="filename" id="filename"></p>
+      <div class="actions">
+        <button class="btn-primary" id="identify" disabled>Identify</button>
+        <button class="btn-ghost" id="clear" hidden>Clear</button>
+      </div>
+    </section>
+
+    <section class="panel result" id="result" aria-live="polite">
+      <div class="placeholder" id="placeholder">The answer will appear here.</div>
+    </section>
+
+  </div>
+
+  <footer id="meta"></footer>
+</div>
+
+<script>
+(function () {
+  const drop = document.getElementById('drop');
+  const dropInner = document.getElementById('dropInner');
+  const fileInput = document.getElementById('file');
+  const filenameEl = document.getElementById('filename');
+  const identifyBtn = document.getElementById('identify');
+  const clearBtn = document.getElementById('clear');
+  const result = document.getElementById('result');
+  const meta = document.getElementById('meta');
+
+  const BARS = ['var(--bar1)', 'var(--bar2)', 'var(--bar3)', 'var(--bar4)', 'var(--bar5)'];
+  let current = null;
+  let objectUrl = null;
+
+  function setFile(file) {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showError("That's not an image. Try a JPG, PNG or WEBP.");
+      return;
+    }
+    current = file;
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    objectUrl = URL.createObjectURL(file);
+
+    dropInner.innerHTML = '';
+    const img = new Image();
+    img.src = objectUrl;
+    img.alt = 'Selected image';
+    dropInner.appendChild(img);
+
+    filenameEl.textContent = file.name || 'pasted image';
+    identifyBtn.disabled = false;
+    clearBtn.hidden = false;
+    reset();
+  }
+
+  function clearAll() {
+    current = null;
+    if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
+    dropInner.innerHTML =
+      '<svg class="drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/>' +
+      '<path d="M12 5v13"/></svg>' +
+      '<strong>Drop an image here</strong>' +
+      '<small>or click to browse &middot; or paste with Ctrl&#8202;+&#8202;V</small>';
+    filenameEl.textContent = '';
+    identifyBtn.disabled = true;
+    clearBtn.hidden = true;
+    fileInput.value = '';
+    reset();
+  }
+
+  function reset() {
+    result.innerHTML = '<div class="placeholder">The answer will appear here.</div>';
+  }
+  function showLoading() {
+    result.innerHTML = '<div class="placeholder"><div><div class="spinner"></div>Thinking…</div></div>';
+  }
+  function showError(msg) {
+    result.innerHTML = '<div class="placeholder"><div><p class="eyebrow">Something went wrong</p>' +
+      '<div class="note error">' + escapeHtml(msg) + '</div></div></div>';
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c =>
+      ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+
+  function render(data) {
+    const preds = data.predictions || [];
+    if (!preds.length) { showError('The model returned nothing.'); return; }
+    const top = preds[0];
+    const pct = v => (v * 100).toFixed(1) + '%';
+
+    let html =
+      '<p class="eyebrow">It looks like</p>' +
+      '<h2 class="answer">' + escapeHtml(top.name) + '</h2>' +
+      '<p class="conf"><b>' + pct(top.confidence) + '</b> confident' +
+      ' &middot; ' + data.elapsed_ms + ' ms</p>' +
+      '<div class="bars">';
+
+    preds.forEach((p, i) => {
+      html +=
+        '<div class="bar-row">' +
+          '<span class="bar-name" title="' + escapeHtml(p.name) + '">' + escapeHtml(p.name) + '</span>' +
+          '<span class="bar-track"><span class="bar-fill" data-w="' + (p.confidence * 100) +
+            '" style="background:' + BARS[Math.min(i, BARS.length - 1)] + '"></span></span>' +
+          '<span class="bar-val">' + pct(p.confidence) + '</span>' +
+        '</div>';
+    });
+    html += '</div>';
+
+    if (top.confidence < 0.4) {
+      html += '<div class="note">Low confidence. The model always picks one of its ' +
+              'classes even when the picture is not a Pokémon it knows — treat this as a guess.</div>';
+    }
+    result.innerHTML = html;
+
+    requestAnimationFrame(() => {
+      result.querySelectorAll('.bar-fill').forEach(el => {
+        el.style.width = el.dataset.w + '%';
+      });
+    });
+  }
+
+  // Serverless hosts cap request bodies (Vercel: 4.5 MB) and phone photos blow
+  // straight past it. The model centre-crops to 224px anyway, so the full-size
+  // original was always wasted bytes. Falls back to the untouched file on any error.
+  const MAX_SIDE = 640;
+  const SHRINK_ABOVE_BYTES = 1.5 * 1024 * 1024;
+
+  function shrink(file) {
+    return new Promise(resolve => {
+      if (file.size < SHRINK_ABOVE_BYTES) return resolve(file);
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        try {
+          const scale = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          // White first: a transparent PNG drawn straight to JPEG turns its
+          // transparency BLACK, which is exactly the artefact the model was
+          // trained not to see.
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          canvas.toBlob(
+            blob => resolve(blob || file),
+            'image/jpeg', 0.92
+          );
+        } catch (e) { resolve(file); }
+        finally { URL.revokeObjectURL(url); }
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+      img.src = url;
+    });
+  }
+
+  async function identify() {
+    if (!current) return;
+    showLoading();
+    identifyBtn.disabled = true;
+    try {
+      const payload = await shrink(current);
+      const body = new FormData();
+      body.append('image', payload, current.name || 'pasted.png');
+      const res = await fetch('/api/predict', { method: 'POST', body });
+      const data = await res.json().catch(() => ({ error: 'The server sent something unreadable.' }));
+      if (!res.ok) { showError(data.error || ('Server error ' + res.status)); return; }
+      render(data);
+    } catch (err) {
+      showError('Could not reach the server. Is `python -m src.app` still running?');
+    } finally {
+      identifyBtn.disabled = !current;
+    }
+  }
+
+  drop.addEventListener('click', () => fileInput.click());
+  drop.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+  });
+  fileInput.addEventListener('change', e => setFile(e.target.files[0]));
+
+  ['dragenter', 'dragover'].forEach(evt =>
+    drop.addEventListener(evt, e => { e.preventDefault(); drop.classList.add('is-over'); }));
+  ['dragleave', 'drop'].forEach(evt =>
+    drop.addEventListener(evt, e => { e.preventDefault(); drop.classList.remove('is-over'); }));
+  drop.addEventListener('drop', e => setFile(e.dataTransfer.files[0]));
+
+  document.addEventListener('paste', e => {
+    const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
+    if (item) setFile(item.getAsFile());
+  });
+
+  identifyBtn.addEventListener('click', identify);
+  clearBtn.addEventListener('click', clearAll);
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && current && document.activeElement !== drop) identify();
+  });
+
+  fetch('/api/info').then(r => r.json()).then(d => {
+    meta.innerHTML =
+      '<span>model: ' + escapeHtml(d.model) + '</span>' +
+      '<span>' + d.classes + ' classes</span>' +
+      '<span>' + escapeHtml(d.device) + '</span>' +
+      '<span>' + escapeHtml(d.checkpoint) + '</span>';
+  }).catch(() => {});
+})();
+</script>
+</body>
+</html>

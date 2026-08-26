@@ -20,7 +20,7 @@ import numpy as np
 import torch
 
 from src.models import load_model_from_checkpoint
-from src.utils import IMAGENET_MEAN, IMAGENET_STD, ROOT
+from src.utils import IMAGENET_MEAN, IMAGENET_STD, ROOT, rel_to_root
 
 DEPLOY = ROOT / "deploy" / "vercel"
 
@@ -32,6 +32,10 @@ def main() -> int:
     ap.add_argument("--opset", type=int, default=17)
     ap.add_argument("--skip-verify", action="store_true")
     args = ap.parse_args()
+    args.checkpoint = args.checkpoint.resolve()
+    if not args.checkpoint.exists():
+        print(f"[onnx] checkpoint not found: {args.checkpoint}")
+        return 1
 
     model, names, cfg = load_model_from_checkpoint(args.checkpoint, "cpu")
     img_size = int(cfg.get("img_size", 224))
@@ -53,7 +57,7 @@ def main() -> int:
         "mean": list(IMAGENET_MEAN),
         "std": list(IMAGENET_STD),
         "model": cfg.get("model", "unknown"),
-        "checkpoint": str(Path(args.checkpoint).relative_to(ROOT)).replace("\\", "/"),
+        "checkpoint": rel_to_root(args.checkpoint),
     }
     (args.out / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 

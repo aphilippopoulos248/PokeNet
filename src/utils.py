@@ -86,6 +86,22 @@ def write_json(obj, path: str | Path) -> None:
         json.dump(obj, f, indent=2, ensure_ascii=False)
 
 
+def rel_to_root(path: str | Path) -> str:
+    """Path relative to the project root, for display in logs/metadata.
+
+    Resolves first so a relative CLI arg (e.g. `outputs/run/best.pt`) compares
+    correctly against the absolute ROOT - comparing a relative Path against an
+    absolute one raises ValueError instead of doing the sensible thing. Falls
+    back to the absolute path if it genuinely lives outside the project (a
+    checkpoint pointed at from elsewhere).
+    """
+    p = Path(path).resolve()
+    try:
+        return p.relative_to(ROOT).as_posix()
+    except ValueError:
+        return str(p)
+
+
 def count_params(model: torch.nn.Module) -> tuple[int, int]:
     total = sum(p.numel() for p in model.parameters())
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)

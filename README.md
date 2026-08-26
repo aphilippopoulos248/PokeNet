@@ -253,6 +253,13 @@ Python side.
 `web/index.html` stays the single source of truth; the export copies it into
 `deploy/vercel/`. Re-run both commands after retraining to ship a new model.
 
+`deploy/vercel/app.py` is one Flask app that serves the page at `/` and the API
+at `/api/*` - not a split `api/predict.py`-per-route convention. That convention
+has a sharp edge: any declared entrypoint flips the whole project into "one app
+owns every route" mode, so a handler written only for `/api/predict` crashes
+when it gets hit at `/`. Building the whole thing as one Flask app sidesteps
+that rather than fighting it.
+
 ## How long does this take?
 
 Short answer: minutes, not hours. These datasets are small by deep-learning
