@@ -15,3 +15,5 @@ runs/
 *.pth
 .ipynb_checkpoints/
 kaggle.json
+test_images/**
+!test_images/README.txt

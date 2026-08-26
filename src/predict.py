@@ -15,7 +15,7 @@ from pathlib import Path
 import torch
 
 from src.dataset import build_transforms
-from src.evaluate import load_model_from_checkpoint
+from src.models import load_model_from_checkpoint
 from src.utils import IMAGE_EXTS, get_device, load_image_rgb
 
 
@@ -52,6 +52,67 @@ def predict_paths(model, paths: list[Path], tf, device, topk: int = 5, tta: bool
     return results
 
 
+
+# --- result window -----------------------------------------------------------
+# Single hue, light -> dark: the bars encode magnitude, so the winner is simply
+# the darkest step of the same blue rather than a second colour.
+INK, MUTED, GRID = "#1a1d24", "#6b7280", "#e4e8ee"
+BAR, BAR_TOP, SURFACE = "#b9cbdb", "#2c6aa8", "#ffffff"
+
+
+def show_predictions(results, names, topk: int = 5, max_windows: int = 12) -> None:
+    """Open a window per prediction: the image, the answer, and the top-k bars."""
+    import matplotlib.pyplot as plt  # imported late so --no-show stays headless
+    from matplotlib.patches import FancyBboxPatch
+
+    if not plt.get_backend() or plt.get_backend().lower() == "agg":
+        print("[predict] no interactive display available - skipping windows")
+        return
+
+    shown = results[:max_windows]
+    if len(results) > max_windows:
+        print(f"[predict] showing the first {max_windows} of {len(results)} results")
+
+    for path, idxs, confs in shown:
+        k = min(topk, len(idxs))
+        labels = [names[i] for i in idxs[:k]][::-1]
+        values = [c for c in confs[:k]][::-1]
+
+        fig, (ax_img, ax_bar) = plt.subplots(
+            1, 2, figsize=(10, 4.6), gridspec_kw={"width_ratios": [1, 1.25]})
+        fig.patch.set_facecolor(SURFACE)
+
+        ax_img.imshow(load_image_rgb(path))
+        ax_img.axis("off")
+
+        # The answer, stated plainly.
+        fig.text(0.5, 0.955, names[idxs[0]], ha="center", va="top",
+                 fontsize=24, fontweight="bold", color=INK)
+        fig.text(0.5, 0.885, f"{confs[0] * 100:.1f}% confident   ·   {Path(path).name}",
+                 ha="center", va="top", fontsize=10, color=MUTED)
+
+        ypos = range(k)
+        ax_bar.barh(list(ypos), values, height=0.62,
+                    color=[BAR_TOP if i == k - 1 else BAR for i in range(k)])
+        for y, (v, lab) in enumerate(zip(values, labels)):
+            ax_bar.text(v + 0.015, y, f"{v * 100:.1f}%", va="center",
+                        fontsize=9, color=MUTED)
+            ax_bar.text(-0.015, y, lab, va="center", ha="right",
+                        fontsize=10, color=INK)
+        ax_bar.set_xlim(0, 1.16)
+        ax_bar.set_yticks([])
+        ax_bar.set_xticks([])
+        ax_bar.set_facecolor(SURFACE)
+        for side in ("top", "right", "bottom", "left"):
+            ax_bar.spines[side].set_visible(False)
+        ax_bar.set_title(f"top {k}", loc="left", fontsize=9, color=MUTED, pad=8)
+
+        fig.subplots_adjust(left=0.02, right=0.97, top=0.80, bottom=0.06, wspace=0.45)
+
+    print(f"[predict] close the window(s) to continue")
+    plt.show()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--checkpoint", type=Path, required=True)
@@ -61,6 +122,9 @@ def main() -> int:
     ap.add_argument("--save-to", type=Path, help="where --url downloads land (default: temp)")
     ap.add_argument("--topk", type=int, default=5)
     ap.add_argument("--tta", action="store_true", help="average logits with the mirrored image")
+    ap.add_argument("--no-show", dest="show", action="store_false",
+                    help="do not open result windows (default: open them)")
+    ap.set_defaults(show=True)
     ap.add_argument("--csv", type=Path)
     ap.add_argument("--device", default="auto")
     args = ap.parse_args()
@@ -91,6 +155,9 @@ def main() -> int:
         print(f"{path.name:<40} {top}")
         rows.append({"path": str(path), "prediction": names[idxs[0]], "confidence": round(confs[0], 4),
                      "topk": top})
+
+    if args.show:
+        show_predictions(results, names, args.topk)
 
     if args.csv:
         args.csv.parent.mkdir(parents=True, exist_ok=True)

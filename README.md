@@ -29,8 +29,14 @@ python -m src.predict --checkpoint outputs/baseline_pokenet/best.pt --url https:
 python -m src.predict --checkpoint outputs/baseline_pokenet/best.pt --dir test_images --csv reports/preds.csv
 ```
 
+Each prediction opens a window: the image, the predicted name in large type, and
+a bar chart of the top-5 confidences. Close it to continue. Pass `--no-show` to
+suppress the windows (scripts, CSV batches, headless runs); more than 12 images
+only opens the first 12.
+
 The model always returns one of its 149 classes, with a confidence. Feed it a
 golden retriever and it will say Growlithe - softmax has no "none of the above".
+A low top-1 with a flat top-5 is the closest it gets to "I don't know".
 
 Optional, any time: `python -m src.benchmark --config configs/resnet18.yaml` measures
 throughput on your GPU and estimates epoch and total run time. Add `--synthetic` to

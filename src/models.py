@@ -8,6 +8,8 @@ Two tracks on purpose:
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 from torchvision import models
@@ -139,3 +141,20 @@ def param_groups(model: nn.Module, lr_head: float, lr_backbone: float) -> list[d
     if backbone:
         groups.append({"params": backbone, "lr": lr_backbone})
     return groups
+
+
+def load_model_from_checkpoint(path: str | Path, device="cpu"):
+    """Rebuild the architecture recorded in a checkpoint and load its weights.
+
+    Returns (model in eval mode, class_names, config).
+    """
+    from src.engine import load_checkpoint
+
+    ck = load_checkpoint(Path(path), map_location=device)
+    cfg = ck.get("config", {})
+    names = ck.get("class_names", [])
+    model = build_model(cfg.get("model", "resnet18"), len(names) or 151,
+                        pretrained=False, dropout=cfg.get("dropout", 0.2),
+                        width=cfg.get("width", 32))
+    model.load_state_dict(ck["model_state"])
+    return model.to(device).eval(), names, cfg

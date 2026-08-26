@@ -23,20 +23,8 @@ from sklearn.metrics import classification_report, confusion_matrix
 
 from src.dataset import PokemonDataset, build_transforms, denormalize
 from src.engine import evaluate as run_eval
-from src.engine import load_checkpoint
-from src.models import build_model
+from src.models import load_model_from_checkpoint
 from src.utils import DATA_SPLITS, REPORTS, describe_device, get_device
-
-
-def load_model_from_checkpoint(path: Path, device):
-    ck = load_checkpoint(path, map_location=device)
-    cfg = ck.get("config", {})
-    names = ck.get("class_names", [])
-    model = build_model(cfg.get("model", "resnet18"), len(names) or 151,
-                        pretrained=False, dropout=cfg.get("dropout", 0.2),
-                        width=cfg.get("width", 32))
-    model.load_state_dict(ck["model_state"])
-    return model.to(device).eval(), names, cfg
 
 
 def confusion_figure(cm: np.ndarray, out: Path, title: str) -> None:
