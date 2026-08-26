@@ -20,6 +20,7 @@ import numpy as np
 import torch
 
 from src.models import load_model_from_checkpoint
+from src.types import type_map
 from src.utils import IMAGENET_MEAN, IMAGENET_STD, ROOT, rel_to_root
 
 DEPLOY = ROOT / "deploy" / "vercel"
@@ -58,6 +59,9 @@ def main() -> int:
         "std": list(IMAGENET_STD),
         "model": cfg.get("model", "unknown"),
         "checkpoint": rel_to_root(args.checkpoint),
+        # Baked in so the serverless function stays self-contained: it has no
+        # src/ and no metadata CSV, only this folder.
+        "types": type_map(names),
     }
     (args.out / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
@@ -67,7 +71,9 @@ def main() -> int:
 
     mb = onnx_path.stat().st_size / 1024**2
     print(f"[onnx] wrote {onnx_path} ({mb:.1f} MB)")
-    print(f"[onnx] wrote {args.out / 'meta.json'} ({len(names)} classes, {img_size}px)")
+    typed = sum(1 for v in meta["types"].values() if v)
+    print(f"[onnx] wrote {args.out / 'meta.json'} ({len(names)} classes, {img_size}px, "
+          f"{typed}/{len(names)} with types)")
     print(f"[onnx] copied web/index.html -> {DEPLOY / 'index.html'}")
 
     if not args.skip_verify:

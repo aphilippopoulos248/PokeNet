@@ -22,6 +22,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from src.dataset import build_transforms
 from src.models import load_model_from_checkpoint
+from src.types import types_for
 from src.utils import ROOT, describe_device, get_device, load_image_rgb, rel_to_root
 
 WEB_DIR = ROOT / "web"
@@ -94,9 +95,16 @@ def predict():
 
     k = min(5, probs.numel())
     conf, idx = probs.topk(k)
+    # "types" is a lookup keyed off the predicted name, not a second model head -
+    # see src/types.py for why that distinction matters. The page uses it to
+    # colour its background.
     return jsonify({
         "predictions": [
-            {"name": STATE["names"][i], "confidence": float(c)}
+            {
+                "name": STATE["names"][i],
+                "confidence": float(c),
+                "types": types_for(STATE["names"][i]),
+            }
             for i, c in zip(idx.tolist(), conf.tolist())
         ],
         "elapsed_ms": round(elapsed_ms, 1),

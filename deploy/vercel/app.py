@@ -34,6 +34,10 @@ _META = json.loads((MODEL_DIR / "meta.json").read_text(encoding="utf-8"))
 _SESSION = ort.InferenceSession(str(MODEL_DIR / "pokemon.onnx"), providers=["CPUExecutionProvider"])
 _MEAN = np.array(_META["mean"], dtype=np.float32).reshape(3, 1, 1)
 _STD = np.array(_META["std"], dtype=np.float32).reshape(3, 1, 1)
+# {class_name: ["Fire", "Flying"]}, baked in by src/export_onnx.py. Absent on a
+# meta.json exported before types existed, hence the .get - an older deploy
+# degrades to no background colour rather than a 500.
+_TYPES = _META.get("types", {})
 
 
 def load_rgb(data: bytes) -> Image.Image:
@@ -105,7 +109,14 @@ def predict():
     k = min(5, len(names))
     order = np.argsort(-probs)[:k]
     return jsonify({
-        "predictions": [{"name": names[i], "confidence": float(probs[i])} for i in order],
+        "predictions": [
+            {
+                "name": names[i],
+                "confidence": float(probs[i]),
+                "types": _TYPES.get(names[i], []),
+            }
+            for i in order
+        ],
         "elapsed_ms": round(elapsed_ms, 1),
     })
 

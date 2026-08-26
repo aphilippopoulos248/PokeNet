@@ -31,8 +31,25 @@
     }
   }
 
+  /* A plain CSS custom property is an unparsed token, so it can only ever JUMP
+     between values. Registering it with a <color> syntax makes the browser treat
+     it as a real colour, which means it can be interpolated - that is what lets
+     the background crossfade instead of snapping. Everything still works in a
+     browser without @property support; the colour just changes instantly. */
+  @property --type-a { syntax: '<color>'; inherits: true; initial-value: transparent; }
+  @property --type-b { syntax: '<color>'; inherits: true; initial-value: transparent; }
+
   body {
-    background: var(--paper); color: var(--ink);
+    background-color: var(--paper); color: var(--ink);
+    /* Two soft off-screen-anchored blooms. The gradient geometry never changes -
+       only the two colours do - so the transition below has something it can
+       actually animate. */
+    background-image:
+      radial-gradient(70rem 46rem at 12% -18%, var(--type-a), transparent 66%),
+      radial-gradient(58rem 40rem at 88% 6%,  var(--type-b), transparent 62%);
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+    transition: --type-a .8s ease, --type-b .8s ease;
     font-family: var(--f-body); font-size: 16px; line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     min-height: 100vh;
@@ -109,6 +126,15 @@
   .conf { color: var(--muted); font-size: .95rem; margin: 0 0 1.1rem; }
   .conf b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
 
+  .types { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 0 .7rem; }
+  .type-pill {
+    font-family: var(--f-mono); font-size: .68rem; font-weight: 500;
+    letter-spacing: .1em; text-transform: uppercase;
+    padding: .28rem .65rem; border-radius: 999px;
+    /* colour + background are set inline per type - the palette lives in JS
+       because it is keyed by type name, not by a fixed set of class names */
+  }
+
   .bars { display: flex; flex-direction: column; gap: .45rem; margin-top: auto; }
   .bar-row { display: grid; grid-template-columns: 7.5rem 1fr 3.2rem; align-items: center; gap: .6rem; }
   .bar-name { font-size: .88rem; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -133,6 +159,7 @@
   @media (prefers-reduced-motion: reduce) {
     .spinner { animation-duration: 2s; }
     .bar-fill { transition: none; }
+    body { transition: none; }
   }
 
   footer {
@@ -198,6 +225,48 @@
   const meta = document.getElementById('meta');
 
   const BARS = ['var(--bar1)', 'var(--bar2)', 'var(--bar3)', 'var(--bar4)', 'var(--bar5)'];
+
+  // The palette is a presentation concern, so it lives here rather than in the
+  // API response - the server sends type NAMES, the page decides what they look
+  // like. Gen 1 only uses 15 of these; the rest are here so nothing breaks if
+  // this is ever pointed at a later generation.
+  const TYPE_COLORS = {
+    Normal:'#A8A77A', Fire:'#EE8130', Water:'#6390F0', Electric:'#F7D02C',
+    Grass:'#7AC74C', Ice:'#96D9D6', Fighting:'#C22E28', Poison:'#A33EA1',
+    Ground:'#E2BF65', Flying:'#A98FF3', Psychic:'#F95587', Bug:'#A6B91A',
+    Rock:'#B6A136', Ghost:'#735797', Dragon:'#6F35FC', Dark:'#705746',
+    Steel:'#B7B7CE', Fairy:'#D685AD'
+  };
+
+  function rgbOf(hex) {
+    const h = hex.replace('#', '');
+    return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
+  }
+  function rgba(hex, a) {
+    const [r, g, b] = rgbOf(hex);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+  }
+  // Half the type colours are pale (Electric, Ice, Steel) and half are dark.
+  // Perceived luminance picks the readable text colour instead of hardcoding
+  // white and hoping.
+  function readableOn(hex) {
+    const [r, g, b] = rgbOf(hex);
+    return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? '#14161c' : '#ffffff';
+  }
+  function isDark() {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches &&
+           document.documentElement.dataset.theme !== 'light';
+  }
+  // Dual types get one bloom each; single types reuse the same hue at two
+  // different sizes so it still reads as a gradient rather than a flat wash.
+  function paintBackground(types) {
+    const a = TYPE_COLORS[types && types[0]] || null;
+    const b = TYPE_COLORS[types && types[1]] || a;
+    const alpha = isDark() ? 0.32 : 0.45;
+    document.body.style.setProperty('--type-a', a ? rgba(a, alpha) : 'transparent');
+    document.body.style.setProperty('--type-b', b ? rgba(b, alpha * 0.8) : 'transparent');
+  }
+
   let current = null;
   let objectUrl = null;
 
@@ -242,6 +311,7 @@
 
   function reset() {
     result.innerHTML = '<div class="placeholder">The answer will appear here.</div>';
+    paintBackground([]);
   }
   function showLoading() {
     result.innerHTML = '<div class="placeholder"><div><div class="spinner"></div>Thinking…</div></div>';
@@ -261,9 +331,21 @@
     const top = preds[0];
     const pct = v => (v * 100).toFixed(1) + '%';
 
+    // Types are a lookup on the predicted name, done server-side - not a second
+    // thing the model guessed at. Older deploys may not send them at all.
+    const types = top.types || [];
+    const pills = types.length
+      ? '<div class="types">' + types.map(function (ty) {
+          const c = TYPE_COLORS[ty] || '#8a8f9e';
+          return '<span class="type-pill" style="background:' + c +
+                 ';color:' + readableOn(c) + '">' + escapeHtml(ty) + '</span>';
+        }).join('') + '</div>'
+      : '';
+
     let html =
       '<p class="eyebrow">It looks like</p>' +
       '<h2 class="answer">' + escapeHtml(top.name) + '</h2>' +
+      pills +
       '<p class="conf"><b>' + pct(top.confidence) + '</b> confident' +
       ' &middot; ' + data.elapsed_ms + ' ms</p>' +
       '<div class="bars">';
@@ -284,6 +366,7 @@
               'classes even when the picture is not a Pokémon it knows — treat this as a guess.</div>';
     }
     result.innerHTML = html;
+    paintBackground(types);
 
     requestAnimationFrame(() => {
       result.querySelectorAll('.bar-fill').forEach(el => {
