@@ -409,7 +409,7 @@ python -m src.train --config configs/resnet18.yaml --epochs 40 --batch-size 96 -
 ## Layout
 
 ```
-PokemonCNN/
+PokeNet/
 ├── configs/          baseline.yaml, resnet18.yaml, resnet50.yaml
 ├── web/index.html    the drop-an-image page (source of truth)
 ├── deploy/vercel/    generated Vercel deployment (ONNX + serverless function)

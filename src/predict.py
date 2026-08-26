@@ -27,7 +27,7 @@ def download(url: str, dest_dir: Path | None = None) -> Path:
     if not any(name.lower().endswith(e) for e in IMAGE_EXTS):
         name += ".jpg"
     dest = dest_dir / name
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (PokemonCNN)"})
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (PokeNet)"})
     with urllib.request.urlopen(req, timeout=30) as r, open(dest, "wb") as f:
         f.write(r.read())
     print(f"[predict] downloaded {url} -> {dest}")
