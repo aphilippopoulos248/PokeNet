@@ -193,6 +193,37 @@ depict something else.
 
 ---
 
+## The web app - for everyone else
+
+Other people should not have to touch a terminal. `src/app.py` serves a page
+where they drop in an image and press a button.
+
+```bash
+pip install flask
+python -m src.app
+# open http://127.0.0.1:5000
+```
+
+An HTML page cannot run PyTorch, so this is a small Flask server doing both jobs:
+it serves `web/index.html`, and `POST /api/predict` runs the image through the
+checkpoint on your GPU and returns the top-5 as JSON. The page itself is one
+self-contained file - no build step, no framework.
+
+It picks the best checkpoint it can find (resnet50 -> resnet18 -> baseline), or
+pass `--checkpoint` to force one.
+
+| Flag | Effect |
+|---|---|
+| `--checkpoint outputs/<run>/best.pt` | use a specific model |
+| `--port 8080` | change the port |
+| `--host 0.0.0.0` | let others on your wifi use it, at `http://<your-ip>:5000` |
+| `--no-tta` | skip mirror-averaging (marginally faster) |
+
+The page supports drag-and-drop, click-to-browse, and **Ctrl+V paste** - so an
+image copied straight off a Google results page works without saving a file. Under
+40% confidence it says so, because softmax always returns an answer whether or not
+the picture contains a Pokemon at all.
+
 ## How long does this take?
 
 Short answer: minutes, not hours. These datasets are small by deep-learning
@@ -241,6 +272,7 @@ python -m src.train --config configs/resnet18.yaml --epochs 40 --batch-size 96 -
 ```
 PokemonCNN/
 ├── configs/          baseline.yaml, resnet18.yaml, resnet50.yaml
+├── web/index.html    the drop-an-image page served by src/app.py
 ├── data/
 │   ├── raw/<source>/ downloaded images, one subfolder per dataset (gitignored)
 │   ├── metadata/     Gen1_Pokemon.csv - the canonical 151 names
@@ -258,6 +290,7 @@ PokemonCNN/
     ├── engine.py       train/eval loops, AMP, mixup, cosine LR, checkpoints
     ├── train.py        config-driven training CLI
     ├── benchmark.py     throughput + run-time estimator for your GPU
+    ├── app.py          Flask server for the web UI
     ├── evaluate.py     test metrics, confusion matrix, mistake analysis
     └── predict.py      inference on new images
 ```

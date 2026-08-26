@@ -13,3 +13,4 @@ tqdm>=4.66
 pyyaml>=6.0
 kagglehub>=0.3.0
 tensorboard>=2.15
+flask>=3.0
