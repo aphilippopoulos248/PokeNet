@@ -38,6 +38,8 @@ _STD = np.array(_META["std"], dtype=np.float32).reshape(3, 1, 1)
 # meta.json exported before types existed, hence the .get - an older deploy
 # degrades to no background colour rather than a 500.
 _TYPES = _META.get("types", {})
+# {class_name: national dex number} - the page turns this into a 3D model URL.
+_DEX = _META.get("dex", {})
 
 
 def load_rgb(data: bytes) -> Image.Image:
@@ -114,6 +116,7 @@ def predict():
                 "name": names[i],
                 "confidence": float(probs[i]),
                 "types": _TYPES.get(names[i], []),
+                "dex": _DEX.get(names[i]),
             }
             for i in order
         ],

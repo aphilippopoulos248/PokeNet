@@ -20,7 +20,7 @@ import numpy as np
 import torch
 
 from src.models import load_model_from_checkpoint
-from src.types import type_map
+from src.types import dex_map, type_map
 from src.utils import IMAGENET_MEAN, IMAGENET_STD, ROOT, rel_to_root
 
 DEPLOY = ROOT / "deploy" / "vercel"
@@ -62,6 +62,7 @@ def main() -> int:
         # Baked in so the serverless function stays self-contained: it has no
         # src/ and no metadata CSV, only this folder.
         "types": type_map(names),
+        "dex": dex_map(names),
     }
     (args.out / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 

@@ -22,7 +22,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from src.dataset import build_transforms
 from src.models import load_model_from_checkpoint
-from src.types import types_for
+from src.types import dex_for, types_for
 from src.utils import ROOT, describe_device, get_device, load_image_rgb, rel_to_root
 
 WEB_DIR = ROOT / "web"
@@ -104,6 +104,7 @@ def predict():
                 "name": STATE["names"][i],
                 "confidence": float(c),
                 "types": types_for(STATE["names"][i]),
+                "dex": dex_for(STATE["names"][i]),
             }
             for i, c in zip(idx.tolist(), conf.tolist())
         ],

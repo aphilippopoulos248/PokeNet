@@ -7,6 +7,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
 <style>
   *, *::before, *::after { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
@@ -96,6 +104,7 @@
 
   /* ---- drop zone ---- */
   .drop {
+    position: relative;                       /* the 3D stage is absolutely placed inside it */
     border: 2px dashed var(--line); border-radius: 8px;
     background: var(--sunken);
     min-height: 17rem;
@@ -111,6 +120,32 @@
   .drop strong { font-weight: 600; }
   .drop small { color: var(--muted); font-size: .85rem; }
   .drop img { max-width: 100%; max-height: 15rem; border-radius: 6px; display: block; }
+
+  /* ---- 3D stage ---- */
+  .stage { position: absolute; inset: 0; border-radius: 6px; overflow: hidden; }
+  .stage canvas { display: block; width: 100% !important; height: 100% !important; cursor: grab; }
+  .stage canvas:active { cursor: grabbing; }
+  .drop.is-model {
+    cursor: default;
+    /* Genuinely transparent behind the model, so the type gradient and the
+       particle field show through instead of a flat grey plate. */
+    background: transparent; border-style: solid; border-color: transparent;
+  }
+  .drop.is-model .drop-inner { display: none; }
+  .drop.is-model:hover { border-color: var(--line); }
+  .stage-msg {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    text-align: center; padding: 1rem;
+    color: var(--muted); font-size: .88rem; pointer-events: none;
+  }
+  .stage-hint {
+    position: absolute; left: 0; right: 0; bottom: .45rem;
+    text-align: center; font-family: var(--f-mono); font-size: .66rem;
+    letter-spacing: .1em; text-transform: uppercase;
+    color: var(--faint); pointer-events: none;
+    opacity: 0; transition: opacity .3s;
+  }
+  .drop.is-model:hover .stage-hint { opacity: 1; }
 
   .filename {
     font-family: var(--f-mono); font-size: .8rem; color: var(--muted);
@@ -218,11 +253,14 @@
           <strong>Drop an image here</strong>
           <small>or click to browse &middot; or paste with Ctrl&#8202;+&#8202;V</small>
         </div>
+        <div class="stage" id="stage" hidden></div>
+        <p class="stage-hint" id="stageHint" hidden>drag to rotate &middot; scroll to zoom</p>
       </div>
       <input type="file" id="file" accept="image/*" class="sr-only">
       <p class="filename" id="filename"></p>
       <div class="actions">
         <button class="btn-primary" id="identify" disabled>Identify</button>
+        <button class="btn-ghost" id="toggle3d" hidden>Show photo</button>
         <button class="btn-ghost" id="clear" hidden>Clear</button>
       </div>
     </section>
@@ -676,6 +714,7 @@
   function reset() {
     result.innerHTML = '<div class="placeholder">The answer will appear here.</div>';
     paintBackground([]);
+    if (window.pokeViewer) window.pokeViewer.hide();
   }
   function showLoading() {
     result.innerHTML = '<div class="placeholder"><div><div class="spinner"></div>Thinking…</div></div>';
@@ -731,6 +770,10 @@
     }
     result.innerHTML = html;
     paintBackground(types);
+    // The viewer is an ES module, so it registers itself after this script has
+    // parsed. Optional-call it: on a slow connection a prediction could in
+    // principle land first, and a missing 3D model must never break the answer.
+    if (window.pokeViewer) window.pokeViewer.show(top.dex, top.name);
 
     requestAnimationFrame(() => {
       result.querySelectorAll('.bar-fill').forEach(el => {
@@ -795,7 +838,11 @@
     }
   }
 
-  drop.addEventListener('click', () => fileInput.click());
+  // While a model is on screen the drop zone is a 3D viewport, not a file
+  // picker - clicking to orbit must not pop open a file dialog.
+  drop.addEventListener('click', () => {
+    if (!drop.classList.contains('is-model')) fileInput.click();
+  });
   drop.addEventListener('keydown', e => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
   });
@@ -826,6 +873,215 @@
       '<span>' + escapeHtml(d.checkpoint) + '</span>';
   }).catch(() => {});
 })();
+</script>
+<script type="module">
+/* ---------------------------------------------------------------------------
+   3D model viewer.
+
+   After a prediction the drop zone stops showing the photo you uploaded and
+   shows the predicted Pokemon's actual 3D model instead, on a transparent
+   background so the type gradient and particles show through behind it.
+
+   Models come from github.com/Pokemon-3D-api/assets, addressed by National Dex
+   number - which is why the API now returns a `dex` field next to `types`.
+   They are Draco-compressed with WebP textures, so the loader needs a Draco
+   decoder wired up; three.js handles EXT_texture_webp natively.
+
+   Everything here fails soft. No dex number, no model in the repo, no WebGL,
+   CDN unreachable - each one falls back to the uploaded photo and leaves the
+   prediction itself untouched.
+--------------------------------------------------------------------------- */
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+// Swap this for https://cdn.jsdelivr.net/gh/Pokemon-3D-api/assets@main/models/opt/regular/
+// if raw.githubusercontent starts rate-limiting - jsDelivr is a real CDN and
+// caches, raw.githubusercontent is not meant to be used as one.
+const MODEL_BASE = 'https://raw.githubusercontent.com/Pokemon-3D-api/assets/main/models/opt/regular/';
+const DRACO_PATH = 'https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/libs/draco/';
+
+const drop     = document.getElementById('drop');
+const stage    = document.getElementById('stage');
+const hint     = document.getElementById('stageHint');
+const toggleBt = document.getElementById('toggle3d');
+
+let renderer, scene, camera, controls, raf = null;
+let model = null, msgEl = null, token = 0, showing = false, hasModel = false;
+
+function msg(text) {
+  if (!msgEl) { msgEl = document.createElement('div'); msgEl.className = 'stage-msg'; stage.appendChild(msgEl); }
+  msgEl.textContent = text;
+  msgEl.hidden = !text;
+}
+
+// WebGL contexts are a limited resource and starting one costs real time, so
+// the whole renderer is built on first use rather than at page load - a visitor
+// who never runs a prediction never pays for it.
+function init() {
+  if (renderer) return true;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'low-power' });
+  } catch (e) { return false; }
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  renderer.setClearAlpha(0);                       // transparent, as asked
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  stage.appendChild(renderer.domElement);
+
+  scene = new THREE.Scene();                       // no background => page shows through
+  camera = new THREE.PerspectiveCamera(35, 1, 0.1, 1000);
+
+  // These are PBR models from Sketchfab; lighting them with a couple of point
+  // lights looks flat and plasticky. A generated room environment gives them
+  // something to actually reflect, which is most of what makes them read as 3D.
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.1));
+  const key = new THREE.DirectionalLight(0xffffff, 1.5);
+  key.position.set(2.5, 4, 3);
+  scene.add(key);
+
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.enablePan = false;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 1.6;
+  controls.addEventListener('start', () => { controls.autoRotate = false; });
+
+  new ResizeObserver(resize).observe(stage);
+  return true;
+}
+
+function resize() {
+  if (!renderer || stage.hidden) return;   // hidden => clientWidth 0 => pointless 1x1 buffer
+  const w = stage.clientWidth || 1, h = stage.clientHeight || 1;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+
+function loop() {
+  raf = requestAnimationFrame(loop);
+  controls.update();
+  renderer.render(scene, camera);
+}
+function play() { if (!raf) loop(); }
+function pause() { if (raf) { cancelAnimationFrame(raf); raf = null; } }
+
+// Every GPU resource a glTF allocates has to be released by hand - dropping the
+// JS reference alone leaks VRAM, and this page can swap models all day.
+function disposeModel() {
+  if (!model) return;
+  model.traverse(o => {
+    if (!o.isMesh) return;
+    o.geometry?.dispose();
+    for (const m of [].concat(o.material || [])) {
+      for (const k in m) {
+        const v = m[k];
+        if (v && v.isTexture) v.dispose();
+      }
+      m.dispose?.();
+    }
+  });
+  scene.remove(model);
+  model = null;
+}
+
+// Models arrive at wildly different scales and origins, so nothing can be
+// hard-coded: measure the bounding box, recentre it on the origin, and pull the
+// camera back by the box's own size.
+function frameModel(obj) {
+  const box = new THREE.Box3().setFromObject(obj);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const extent = Math.max(size.x, size.y, size.z) || 1;
+
+  obj.position.sub(center);
+  obj.position.y += size.y * 0.02;
+
+  const dist = (extent / 2) / Math.tan((camera.fov * Math.PI / 180) / 2) * 1.5;
+  camera.near = extent / 100;
+  camera.far  = extent * 100;
+  camera.position.set(dist * 0.35, extent * 0.12, dist);
+  camera.updateProjectionMatrix();
+  controls.target.set(0, 0, 0);
+  controls.minDistance = dist * 0.35;
+  controls.maxDistance = dist * 3;
+  controls.update();
+}
+
+let loader = null;
+function getLoader() {
+  if (loader) return loader;
+  const draco = new DRACOLoader().setDecoderPath(DRACO_PATH);
+  loader = new GLTFLoader().setDRACOLoader(draco);
+  return loader;
+}
+
+function showStage(on) {
+  stage.hidden = !on;
+  hint.hidden = !on;
+  drop.classList.toggle('is-model', on);
+  toggleBt.hidden = !hasModel;
+  toggleBt.textContent = on ? 'Show photo' : 'Show 3D';
+  showing = on;
+  if (on) { resize(); play(); } else { pause(); }
+}
+
+function hide() {
+  token++;                       // invalidate any in-flight load
+  hasModel = false;
+  showStage(false);
+  toggleBt.hidden = true;
+  if (renderer) disposeModel();
+  msg('');
+}
+
+async function show(dex, name) {
+  if (!dex) { hide(); return; }             // Pokemon with no dex number - keep the photo
+  if (!init()) { hide(); return; }          // no WebGL on this device
+
+  const mine = ++token;
+  hasModel = true;
+  showStage(true);
+  disposeModel();
+  msg('Loading ' + (name || 'model') + '…');
+
+  try {
+    const gltf = await getLoader().loadAsync(MODEL_BASE + dex + '.glb');
+    if (mine !== token) return;             // a newer prediction landed while we waited
+    model = gltf.scene;
+    scene.add(model);
+    frameModel(model);
+    controls.autoRotate = true;
+    msg('');
+  } catch (err) {
+    if (mine !== token) return;
+    // Missing model, offline, blocked CDN - say so quietly and hand the panel
+    // back to the photo. The prediction is still perfectly good.
+    console.warn('[3d] could not load model', dex, err);
+    msg('');
+    hasModel = false;
+    showStage(false);
+    toggleBt.hidden = true;
+  }
+}
+
+toggleBt.addEventListener('click', e => {
+  e.stopPropagation();
+  showStage(!showing);
+});
+
+// A spinning model in a background tab is pure battery burn.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) pause(); else if (showing) play();
+});
+
+window.pokeViewer = { show, hide };
 </script>
 </body>
 </html>

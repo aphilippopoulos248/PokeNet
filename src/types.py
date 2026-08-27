@@ -61,6 +61,42 @@ def _type_table(csv_path: str = str(METADATA_CSV)) -> dict[str, list[str]]:
     return table
 
 
+@lru_cache(maxsize=1)
+def _dex_table(csv_path: str = str(METADATA_CSV)) -> dict[str, int]:
+    """normalized-name -> National Dex number.
+
+    There is no ID column in the CSV - but its rows are in National Dex order
+    (row 1 Bulbasaur ... row 151 Mew), so the row index IS the number. Verified
+    against known anchors (#6 Charizard, #25 Pikachu, #150 Mewtwo, #151 Mew)
+    rather than assumed, because silently-off-by-one dex numbers would show the
+    wrong 3D model for every single Pokemon.
+    """
+    path = Path(csv_path)
+    if not path.exists():
+        return {}
+    table: dict[str, int] = {}
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        for i, row in enumerate(csv.DictReader(f), start=1):
+            name = (row.get("Name") or "").strip()
+            if name:
+                table[normalize(name)] = i
+    return table
+
+
+def dex_for(name: str) -> int | None:
+    """National Dex number for one class name, or None if unknown."""
+    return _dex_table().get(normalize(name))
+
+
+def dex_map(names: list[str]) -> dict[str, int]:
+    """{class_name: dex_number} for a whole class list, skipping unknowns.
+
+    Baked into meta.json at export time so the deployed page can build a model
+    URL without shipping the CSV.
+    """
+    return {n: d for n in names if (d := dex_for(n)) is not None}
+
+
 def types_for(name: str) -> list[str]:
     """Types for one class name. [] if the name isn't in the metadata CSV."""
     return list(_type_table().get(normalize(name), []))
