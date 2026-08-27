@@ -7,194 +7,15 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<style>
-  *, *::before, *::after { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
-
-  :root {
-    --paper:#eef0f4; --surface:#ffffff; --sunken:#e3e6ec; --line:#d3d7e0;
-    --ink:#14161c; --muted:#5d6376; --faint:#868ca0;
-    --accent:#cf2f26; --steel:#2c6aa8;
-    --bar1:#2c6aa8; --bar2:#5c8dc0; --bar3:#8badd2; --bar4:#b3c9e0; --bar5:#d2dfec;
-    --shadow: 0 1px 2px rgba(20,22,28,.06), 0 8px 24px rgba(20,22,28,.06);
-    --f-display:"Archivo","Helvetica Neue",Arial,sans-serif;
-    --f-body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
-    --f-mono:"IBM Plex Mono",Consolas,monospace;
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
   }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --paper:#0e1015; --surface:#171a21; --sunken:#10131a; --line:#2a2f3b;
-      --ink:#e7e9f0; --muted:#9aa0b3; --faint:#767d92;
-      --accent:#ff5f52; --steel:#6aa9e0;
-      --bar1:#6aa9e0; --bar2:#4d80ad; --bar3:#3d6183; --bar4:#324a61; --bar5:#283847;
-      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
-    }
-  }
-
-  /* A plain CSS custom property is an unparsed token, so it can only ever JUMP
-     between values. Registering it with a <color> syntax makes the browser treat
-     it as a real colour, which means it can be interpolated - that is what lets
-     the background crossfade instead of snapping. Everything still works in a
-     browser without @property support; the colour just changes instantly. */
-  @property --type-a { syntax: '<color>'; inherits: true; initial-value: transparent; }
-  @property --type-b { syntax: '<color>'; inherits: true; initial-value: transparent; }
-
-  body {
-    background-color: var(--paper); color: var(--ink);
-    /* Two soft off-screen-anchored blooms. The gradient geometry never changes -
-       only the two colours do - so the transition below has something it can
-       actually animate. */
-    background-image:
-      radial-gradient(70rem 46rem at 12% -18%, var(--type-a), transparent 66%),
-      radial-gradient(58rem 40rem at 88% 6%,  var(--type-b), transparent 62%);
-    background-attachment: fixed;
-    background-repeat: no-repeat;
-    transition: --type-a .8s ease, --type-b .8s ease;
-    font-family: var(--f-body); font-size: 16px; line-height: 1.6;
-    -webkit-font-smoothing: antialiased;
-    min-height: 100vh;
-  }
-
-  /* The particle field sits above the body's gradient but below every bit of
-     content, and never eats a click. Fixed, so it does not scroll away. */
-  #fx {
-    position: fixed; inset: 0; width: 100%; height: 100%;
-    pointer-events: none; z-index: 0;
-    opacity: 0; transition: opacity .45s ease;
-  }
-  .wrap {
-    position: relative; z-index: 1;
-    max-width: 60rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1rem,4vw,2rem) 4rem;
-  }
-
-  header { margin-bottom: 1.75rem; }
-  h1 {
-    font-family: var(--f-display); font-weight: 800; letter-spacing: -.025em;
-    font-size: clamp(1.9rem, 5vw, 2.6rem); margin: 0 0 .35rem;
-  }
-  h1 .em { color: var(--accent); }
-  .sub { color: var(--muted); margin: 0; max-width: 34rem; }
-
-  .cols { display: grid; gap: 1.25rem; grid-template-columns: 1fr; align-items: start; }
-  @media (min-width: 52rem) { .cols { grid-template-columns: 1fr 1fr; } }
-
-  .panel {
-    /* Frosted rather than opaque: the particle field shows through, which is
-       what stops the effect from only living in the page margins. The blur
-       keeps text contrast well clear of the moving pixels behind it. */
-    background: color-mix(in srgb, var(--surface) 86%, transparent);
-    -webkit-backdrop-filter: blur(14px) saturate(1.4);
-    backdrop-filter: blur(14px) saturate(1.4);
-    border: 1px solid var(--line);
-    border-radius: 10px; padding: 1.25rem; box-shadow: var(--shadow);
-  }
-  /* Browsers without color-mix get the flat opaque panel - no transparency,
-     but nothing looks broken. */
-  @supports not (background: color-mix(in srgb, red 50%, transparent)) {
-    .panel { background: var(--surface); }
-  }
-
-  /* ---- drop zone ---- */
-  .drop {
-    border: 2px dashed var(--line); border-radius: 8px;
-    background: var(--sunken);
-    min-height: 17rem;
-    display: grid; place-items: center; text-align: center;
-    padding: 1.25rem; cursor: pointer;
-    transition: border-color .15s, background .15s;
-  }
-  .drop:hover, .drop:focus-visible { border-color: var(--steel); }
-  .drop.is-over { border-color: var(--accent); background: var(--surface); }
-  .drop:focus-visible { outline: 2px solid var(--steel); outline-offset: 3px; }
-  .drop-inner { display: flex; flex-direction: column; align-items: center; gap: .5rem; }
-  .drop-icon { width: 44px; height: 44px; color: var(--faint); }
-  .drop strong { font-weight: 600; }
-  .drop small { color: var(--muted); font-size: .85rem; }
-  .drop img { max-width: 100%; max-height: 15rem; border-radius: 6px; display: block; }
-
-  .filename {
-    font-family: var(--f-mono); font-size: .8rem; color: var(--muted);
-    margin-top: .75rem; word-break: break-all; min-height: 1.2em;
-  }
-
-  .actions { display: flex; gap: .6rem; margin-top: .9rem; }
-  button {
-    font: inherit; font-weight: 600; border-radius: 7px; cursor: pointer;
-    padding: .7rem 1.2rem; border: 1px solid transparent; transition: filter .15s;
-  }
-  button:focus-visible { outline: 2px solid var(--steel); outline-offset: 2px; }
-  .btn-primary { background: var(--accent); color: #fff; flex: 1; }
-  .btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
-  .btn-primary:disabled { background: var(--line); color: var(--faint); cursor: not-allowed; }
-  .btn-ghost { background: transparent; color: var(--muted); border-color: var(--line); }
-  .btn-ghost:hover { color: var(--ink); }
-
-  /* ---- result ---- */
-  .result { min-height: 17rem; display: flex; flex-direction: column; }
-  .placeholder {
-    flex: 1; display: grid; place-items: center; text-align: center;
-    color: var(--faint); font-size: .95rem;
-  }
-  .eyebrow {
-    font-family: var(--f-mono); font-size: .72rem; letter-spacing: .14em;
-    text-transform: uppercase; color: var(--faint); margin-bottom: .3rem;
-  }
-  .answer {
-    font-family: var(--f-display); font-weight: 800; letter-spacing: -.02em;
-    font-size: clamp(2rem, 6vw, 2.9rem); line-height: 1.05; margin: 0 0 .3rem;
-    overflow-wrap: anywhere;
-  }
-  .conf { color: var(--muted); font-size: .95rem; margin: 0 0 1.1rem; }
-  .conf b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
-
-  .types { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 0 .7rem; }
-  .type-pill {
-    font-family: var(--f-mono); font-size: .68rem; font-weight: 500;
-    letter-spacing: .1em; text-transform: uppercase;
-    padding: .28rem .65rem; border-radius: 999px;
-    /* colour + background are set inline per type - the palette lives in JS
-       because it is keyed by type name, not by a fixed set of class names */
-  }
-
-  .bars { display: flex; flex-direction: column; gap: .45rem; margin-top: auto; }
-  .bar-row { display: grid; grid-template-columns: 7.5rem 1fr 3.2rem; align-items: center; gap: .6rem; }
-  .bar-name { font-size: .88rem; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .bar-track { background: var(--sunken); border-radius: 4px; height: 15px; overflow: hidden; }
-  .bar-fill { height: 100%; border-radius: 4px; width: 0; transition: width .45s cubic-bezier(.2,.7,.3,1); }
-  .bar-val { font-family: var(--f-mono); font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .bar-row:first-child .bar-name { font-weight: 600; }
-
-  .note {
-    margin-top: 1rem; padding: .7rem .85rem; border-radius: 6px;
-    background: var(--sunken); border-left: 3px solid var(--accent);
-    font-size: .85rem; color: var(--muted);
-  }
-  .error { border-left-color: var(--accent); color: var(--ink); }
-
-  .spinner {
-    width: 26px; height: 26px; border-radius: 50%;
-    border: 3px solid var(--line); border-top-color: var(--steel);
-    animation: spin .7s linear infinite; margin: 0 auto .6rem;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) {
-    .spinner { animation-duration: 2s; }
-    .bar-fill { transition: none; }
-    body { transition: none; }
-    /* Moving particles are exactly what this preference is asking us not to do. */
-    #fx { display: none; }
-  }
-
-  footer {
-    margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--line);
-    font-family: var(--f-mono); font-size: .75rem; color: var(--faint);
-    display: flex; flex-wrap: wrap; gap: .35rem 1.1rem;
-  }
-  .sr-only {
-    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
-  }
-</style>
+}
+</script>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="wrap">
@@ -218,11 +39,14 @@
           <strong>Drop an image here</strong>
           <small>or click to browse &middot; or paste with Ctrl&#8202;+&#8202;V</small>
         </div>
+        <div class="stage" id="stage" hidden></div>
+        <p class="stage-hint" id="stageHint" hidden>drag to rotate &middot; scroll to zoom</p>
       </div>
       <input type="file" id="file" accept="image/*" class="sr-only">
       <p class="filename" id="filename"></p>
       <div class="actions">
         <button class="btn-primary" id="identify" disabled>Identify</button>
+        <button class="btn-ghost" id="toggle3d" hidden>Show photo</button>
         <button class="btn-ghost" id="clear" hidden>Clear</button>
       </div>
     </section>
@@ -676,6 +500,7 @@
   function reset() {
     result.innerHTML = '<div class="placeholder">The answer will appear here.</div>';
     paintBackground([]);
+    if (window.pokeViewer) window.pokeViewer.hide();
   }
   function showLoading() {
     result.innerHTML = '<div class="placeholder"><div><div class="spinner"></div>Thinking…</div></div>';
@@ -731,6 +556,10 @@
     }
     result.innerHTML = html;
     paintBackground(types);
+    // The viewer is an ES module, so it registers itself after this script has
+    // parsed. Optional-call it: on a slow connection a prediction could in
+    // principle land first, and a missing 3D model must never break the answer.
+    if (window.pokeViewer) window.pokeViewer.show(top.dex, top.name);
 
     requestAnimationFrame(() => {
       result.querySelectorAll('.bar-fill').forEach(el => {
@@ -795,7 +624,11 @@
     }
   }
 
-  drop.addEventListener('click', () => fileInput.click());
+  // While a model is on screen the drop zone is a 3D viewport, not a file
+  // picker - clicking to orbit must not pop open a file dialog.
+  drop.addEventListener('click', () => {
+    if (!drop.classList.contains('is-model')) fileInput.click();
+  });
   drop.addEventListener('keydown', e => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
   });
@@ -826,6 +659,215 @@
       '<span>' + escapeHtml(d.checkpoint) + '</span>';
   }).catch(() => {});
 })();
+</script>
+<script type="module">
+/* ---------------------------------------------------------------------------
+   3D model viewer.
+
+   After a prediction the drop zone stops showing the photo you uploaded and
+   shows the predicted Pokemon's actual 3D model instead, on a transparent
+   background so the type gradient and particles show through behind it.
+
+   Models come from github.com/Pokemon-3D-api/assets, addressed by National Dex
+   number - which is why the API now returns a `dex` field next to `types`.
+   They are Draco-compressed with WebP textures, so the loader needs a Draco
+   decoder wired up; three.js handles EXT_texture_webp natively.
+
+   Everything here fails soft. No dex number, no model in the repo, no WebGL,
+   CDN unreachable - each one falls back to the uploaded photo and leaves the
+   prediction itself untouched.
+--------------------------------------------------------------------------- */
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+// Swap this for https://cdn.jsdelivr.net/gh/Pokemon-3D-api/assets@main/models/opt/regular/
+// if raw.githubusercontent starts rate-limiting - jsDelivr is a real CDN and
+// caches, raw.githubusercontent is not meant to be used as one.
+const MODEL_BASE = 'https://raw.githubusercontent.com/Pokemon-3D-api/assets/main/models/opt/regular/';
+const DRACO_PATH = 'https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/libs/draco/';
+
+const drop     = document.getElementById('drop');
+const stage    = document.getElementById('stage');
+const hint     = document.getElementById('stageHint');
+const toggleBt = document.getElementById('toggle3d');
+
+let renderer, scene, camera, controls, raf = null;
+let model = null, msgEl = null, token = 0, showing = false, hasModel = false;
+
+function msg(text) {
+  if (!msgEl) { msgEl = document.createElement('div'); msgEl.className = 'stage-msg'; stage.appendChild(msgEl); }
+  msgEl.textContent = text;
+  msgEl.hidden = !text;
+}
+
+// WebGL contexts are a limited resource and starting one costs real time, so
+// the whole renderer is built on first use rather than at page load - a visitor
+// who never runs a prediction never pays for it.
+function init() {
+  if (renderer) return true;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'low-power' });
+  } catch (e) { return false; }
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  renderer.setClearAlpha(0);                       // transparent, as asked
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  stage.appendChild(renderer.domElement);
+
+  scene = new THREE.Scene();                       // no background => page shows through
+  camera = new THREE.PerspectiveCamera(35, 1, 0.1, 1000);
+
+  // These are PBR models from Sketchfab; lighting them with a couple of point
+  // lights looks flat and plasticky. A generated room environment gives them
+  // something to actually reflect, which is most of what makes them read as 3D.
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.1));
+  const key = new THREE.DirectionalLight(0xffffff, 1.5);
+  key.position.set(2.5, 4, 3);
+  scene.add(key);
+
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.enablePan = false;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 1.6;
+  controls.addEventListener('start', () => { controls.autoRotate = false; });
+
+  new ResizeObserver(resize).observe(stage);
+  return true;
+}
+
+function resize() {
+  if (!renderer || stage.hidden) return;   // hidden => clientWidth 0 => pointless 1x1 buffer
+  const w = stage.clientWidth || 1, h = stage.clientHeight || 1;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+
+function loop() {
+  raf = requestAnimationFrame(loop);
+  controls.update();
+  renderer.render(scene, camera);
+}
+function play() { if (!raf) loop(); }
+function pause() { if (raf) { cancelAnimationFrame(raf); raf = null; } }
+
+// Every GPU resource a glTF allocates has to be released by hand - dropping the
+// JS reference alone leaks VRAM, and this page can swap models all day.
+function disposeModel() {
+  if (!model) return;
+  model.traverse(o => {
+    if (!o.isMesh) return;
+    o.geometry?.dispose();
+    for (const m of [].concat(o.material || [])) {
+      for (const k in m) {
+        const v = m[k];
+        if (v && v.isTexture) v.dispose();
+      }
+      m.dispose?.();
+    }
+  });
+  scene.remove(model);
+  model = null;
+}
+
+// Models arrive at wildly different scales and origins, so nothing can be
+// hard-coded: measure the bounding box, recentre it on the origin, and pull the
+// camera back by the box's own size.
+function frameModel(obj) {
+  const box = new THREE.Box3().setFromObject(obj);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const extent = Math.max(size.x, size.y, size.z) || 1;
+
+  obj.position.sub(center);
+  obj.position.y += size.y * 0.02;
+
+  const dist = (extent / 2) / Math.tan((camera.fov * Math.PI / 180) / 2) * 1.5;
+  camera.near = extent / 100;
+  camera.far  = extent * 100;
+  camera.position.set(dist * 0.35, extent * 0.12, dist);
+  camera.updateProjectionMatrix();
+  controls.target.set(0, 0, 0);
+  controls.minDistance = dist * 0.35;
+  controls.maxDistance = dist * 3;
+  controls.update();
+}
+
+let loader = null;
+function getLoader() {
+  if (loader) return loader;
+  const draco = new DRACOLoader().setDecoderPath(DRACO_PATH);
+  loader = new GLTFLoader().setDRACOLoader(draco);
+  return loader;
+}
+
+function showStage(on) {
+  stage.hidden = !on;
+  hint.hidden = !on;
+  drop.classList.toggle('is-model', on);
+  toggleBt.hidden = !hasModel;
+  toggleBt.textContent = on ? 'Show photo' : 'Show 3D';
+  showing = on;
+  if (on) { resize(); play(); } else { pause(); }
+}
+
+function hide() {
+  token++;                       // invalidate any in-flight load
+  hasModel = false;
+  showStage(false);
+  toggleBt.hidden = true;
+  if (renderer) disposeModel();
+  msg('');
+}
+
+async function show(dex, name) {
+  if (!dex) { hide(); return; }             // Pokemon with no dex number - keep the photo
+  if (!init()) { hide(); return; }          // no WebGL on this device
+
+  const mine = ++token;
+  hasModel = true;
+  showStage(true);
+  disposeModel();
+  msg('Loading ' + (name || 'model') + '…');
+
+  try {
+    const gltf = await getLoader().loadAsync(MODEL_BASE + dex + '.glb');
+    if (mine !== token) return;             // a newer prediction landed while we waited
+    model = gltf.scene;
+    scene.add(model);
+    frameModel(model);
+    controls.autoRotate = true;
+    msg('');
+  } catch (err) {
+    if (mine !== token) return;
+    // Missing model, offline, blocked CDN - say so quietly and hand the panel
+    // back to the photo. The prediction is still perfectly good.
+    console.warn('[3d] could not load model', dex, err);
+    msg('');
+    hasModel = false;
+    showStage(false);
+    toggleBt.hidden = true;
+  }
+}
+
+toggleBt.addEventListener('click', e => {
+  e.stopPropagation();
+  showStage(!showing);
+});
+
+// A spinning model in a background tab is pure battery burn.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) pause(); else if (showing) play();
+});
+
+window.pokeViewer = { show, hide };
 </script>
 </body>
 </html>
