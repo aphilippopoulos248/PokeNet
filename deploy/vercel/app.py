@@ -72,6 +72,13 @@ def index():
     return send_from_directory(ROOT, "index.html")
 
 
+@app.get("/style.css")
+def stylesheet():
+    # This Flask app owns every route on the domain, so the stylesheet needs an
+    # explicit route - there is no static file server sitting behind it.
+    return send_from_directory(ROOT, "style.css")
+
+
 @app.get("/api/info")
 def info():
     return jsonify({

@@ -6,8 +6,8 @@ deploy that fits and one that does not.
 
     python -m src.export_onnx --checkpoint outputs/resnet18_ft/best.pt
 
-Writes deploy/vercel/model/{pokemon.onnx, meta.json} and copies web/index.html
-into the deploy folder, then verifies ONNX and PyTorch agree.
+Writes deploy/vercel/model/{pokemon.onnx, meta.json} and copies web/{index.html,
+style.css} into the deploy folder, then verifies ONNX and PyTorch agree.
 """
 from __future__ import annotations
 
@@ -66,16 +66,21 @@ def main() -> int:
     }
     (args.out / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
-    src_page = ROOT / "web" / "index.html"
-    if src_page.exists():
-        shutil.copy2(src_page, DEPLOY / "index.html")
+    # web/ is the single source of truth for the page; deploy/vercel/ is a
+    # generated copy. Miss style.css here and the deployed site loads unstyled.
+    copied = []
+    for name in ("index.html", "style.css"):
+        src_file = ROOT / "web" / name
+        if src_file.exists():
+            shutil.copy2(src_file, DEPLOY / name)
+            copied.append(name)
 
     mb = onnx_path.stat().st_size / 1024**2
     print(f"[onnx] wrote {onnx_path} ({mb:.1f} MB)")
     typed = sum(1 for v in meta["types"].values() if v)
     print(f"[onnx] wrote {args.out / 'meta.json'} ({len(names)} classes, {img_size}px, "
           f"{typed}/{len(names)} with types)")
-    print(f"[onnx] copied web/index.html -> {DEPLOY / 'index.html'}")
+    print(f"[onnx] copied {', '.join(copied)} -> {DEPLOY}")
 
     if not args.skip_verify:
         try:

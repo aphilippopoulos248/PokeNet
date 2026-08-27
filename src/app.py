@@ -50,7 +50,21 @@ def default_checkpoint() -> Path | None:
 
 @app.get("/")
 def index():
-    return send_from_directory(WEB_DIR, "index.html")
+    # No caching in local dev. Without this the browser happily serves a stale
+    # page after you have edited it, and you spend an hour debugging a change
+    # that was never actually loaded.
+    resp = send_from_directory(WEB_DIR, "index.html")
+    resp.headers["Cache-Control"] = "no-store, must-revalidate"
+    return resp
+
+
+@app.get("/style.css")
+def stylesheet():
+    # The CSS lives in its own file now, so it needs its own route - and the
+    # same no-store treatment, for the same reason.
+    resp = send_from_directory(WEB_DIR, "style.css")
+    resp.headers["Cache-Control"] = "no-store, must-revalidate"
+    return resp
 
 
 @app.get("/api/info")
